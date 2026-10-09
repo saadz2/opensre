@@ -22,6 +22,7 @@ from config.constants.account import (
     OPENSRE_APP_URL_DEFAULT,
     OPENSRE_APP_URL_ENV,
     OPENSRE_GATEWAY_LLM_MODEL_DEFAULT,
+    OPENSRE_USE_HOSTED_LLM_ENV,
 )
 from config.constants.billing import USAGE_SECRET_ENV, WEBAPP_URL_ENV
 from config.constants.hosted_gateway import HOSTED_GATEWAY_LOOPBACK_HOSTS
@@ -244,13 +245,18 @@ def delete_account_token() -> None:
 
 
 def account_llm_route() -> AccountLLMRoute | None:
-    """Return the hosted OpenAI route when this process holds an OpenSRE token.
+    """Return the hosted route unless disabled with ``OPENSRE_USE_HOSTED_LLM=0``.
 
     A signed-in laptop has account metadata from ``opensre account login``. A
     hosted gateway never logs in: the control plane injects its organization's
     token (``OPENSRE_ACCOUNT_TOKEN``) and the webapp URL, and that pair is the
     route. The webapp meters the calls against the token's organization.
     """
+    from config.local_env import bootstrap_opensre_env
+
+    bootstrap_opensre_env(override=False)
+    if os.getenv(OPENSRE_USE_HOSTED_LLM_ENV, "1").strip().lower() in {"0", "false", "no", "off"}:
+        return None
     if not resolve_account_token():
         return None
     record = load_account_record()

@@ -98,6 +98,27 @@ Sample success output:
 smtp: passed — Connected to SMTP server successfully.
 ```
 
+## Send a report
+
+If you already have other integrations saved locally, run
+`opensre integrations setup smtp` to save SMTP in the same store. This runtime
+uses that store instead of adding new integrations from the environment.
+
+After configuring SMTP, authorize the email tool for a headless request:
+
+```bash
+opensre ask --allowed-tool send_smtp_email \
+	"Email a brief test report with subject SMTP test to the configured default recipient."
+```
+
+To send findings from a saved investigation, add `--resume SESSION_ID` and ask
+for the existing report. The tool uses `SMTP_DEFAULT_TO` unless you explicitly
+provide a recipient. Sending requires approval; verification does not send email.
+Success means the relay accepted the message, not that it reached an inbox.
+
+Source checkouts expose the new tool on their next launch. Standalone binaries
+must be rebuilt to include tools added after that binary was packaged.
+
 ## Troubleshooting
 
 | Detail | Likely cause |
@@ -111,4 +132,4 @@ smtp: passed — Connected to SMTP server successfully.
 
 - Prefer app passwords / SMTP credentials scoped to a mailer account.
 - Store passwords in `.env` or your secret manager — not in source control.
-- Use `starttls` or `ssl` in production; reserve `none` for local sinks.
+- Prefer `starttls` or `ssl`. Use `none` only for an authorized relay on an appropriately protected network; email contents are transmitted without TLS.

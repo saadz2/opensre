@@ -1440,8 +1440,18 @@ def test_cli_backed_agent_client_tool_call_parsing() -> None:
     with mock.patch(
         "integrations.llm_cli.runner.CLIBackedLLMClient.invoke",
         return_value=LLMResponse(content=json_response),
-    ):
-        result = client.invoke([{"role": "user", "content": "investigate"}])
+    ) as invoke:
+        result = client.invoke(
+            [{"role": "user", "content": "investigate"}],
+            tools=[{"name": "my_tool", "input_schema": {"type": "object"}}],
+        )
+
+    sent_prompt = invoke.call_args.args[0]
+    assert "The OpenSRE host executes your JSON tool calls" in sent_prompt
+    assert '"name": "my_tool"' in sent_prompt
+    assert "EXTERNAL AGENT STATE (JSON)" in sent_prompt
+    assert '"available_host_tools"' in sent_prompt
+    assert "decision-generation task" in sent_prompt
 
     assert result.has_tool_calls
     assert len(result.tool_calls) == 1
@@ -1546,6 +1556,71 @@ def test_cli_backed_agent_client_parses_tool_json() -> None:
     assert len(result.tool_calls) == 1
     assert result.tool_calls[0].name == "my_tool"
     assert result.tool_calls[0].input == {"x": 1}
+
+
+def test_cli_backed_agent_client_repairs_native_tool_confusion() -> None:
+    from unittest.mock import MagicMock
+
+    from core.llm.transports.sdk.agent_clients import CLIBackedAgentClient
+    from core.llm.types import LLMResponse
+
+    client = CLIBackedAgentClient.__new__(CLIBackedAgentClient)
+    backend = MagicMock()
+    backend.invoke.side_effect = [
+        LLMResponse(content="Grafana tools do not exist in this runtime."),
+        LLMResponse(
+            content='{"tool_calls": [{"name": "query_grafana_metrics", "input": '
+            '{"metric_name": "up"}}]}'
+        ),
+    ]
+    client._cli_client = backend
+    result = client.invoke(
+        [{"role": "user", "content": "Check Grafana metrics"}],
+        tools=[{"name": "query_grafana_metrics", "input_schema": {"type": "object"}}],
+    )
+
+    assert backend.invoke.call_count == 2
+    assert "HOST PROTOCOL CORRECTION" in backend.invoke.call_args.args[0]
+    assert result.tool_calls[0].name == "query_grafana_metrics"
+
+
+def test_cli_backed_agent_client_bounds_invalid_protocol_retries() -> None:
+    from unittest.mock import MagicMock
+
+    from core.llm.transports.sdk.agent_clients import CLIBackedAgentClient
+    from core.llm.types import LLMResponse
+
+    client = CLIBackedAgentClient.__new__(CLIBackedAgentClient)
+    backend = MagicMock()
+    backend.invoke.return_value = LLMResponse(content="Tools are unavailable.")
+    client._cli_client = backend
+
+    with pytest.raises(RuntimeError, match="provider protocol failure"):
+        client.invoke(
+            [{"role": "user", "content": "Check Grafana"}],
+            tools=[{"name": "query_grafana_metrics", "input_schema": {"type": "object"}}],
+        )
+    assert backend.invoke.call_count == 2
+
+
+def test_cli_backed_agent_client_reads_structured_final_answer() -> None:
+    from unittest.mock import MagicMock
+
+    from core.llm.transports.sdk.agent_clients import CLIBackedAgentClient
+    from core.llm.types import LLMResponse
+
+    client = CLIBackedAgentClient.__new__(CLIBackedAgentClient)
+    backend = MagicMock()
+    backend.invoke.return_value = LLMResponse(content='{"final_answer": "No matching metrics."}')
+    client._cli_client = backend
+    result = client.invoke(
+        [{"role": "user", "content": "Summarize the metric results"}],
+        tools=[{"name": "query_grafana_metrics", "input_schema": {"type": "object"}}],
+    )
+
+    assert result.content == "No matching metrics."
+    assert not result.has_tool_calls
+    backend.invoke.assert_called_once()
 
 
 def test_cli_backed_agent_client_reuses_single_cli_llm_client() -> None:

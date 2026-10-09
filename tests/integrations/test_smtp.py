@@ -101,3 +101,152 @@ def test_catalog_bootstraps_smtp_from_env(monkeypatch: pytest.MonkeyPatch) -> No
     assert smtp["username"] == "mailer"
     assert smtp["from_address"] == "opensre@example.com"
     assert smtp["default_to"] == "team@example.com"
+
+
+def test_smtp_send_tool_is_registered_private_and_approval_gated() -> None:
+    from core.domain.types.tools import ToolSurface
+    from surfaces.cli.ask.approval import approval_required
+    from tools.registry import get_registered_tools
+
+    tools = {tool.name: tool for tool in get_registered_tools(ToolSurface.CHAT)}
+    sender = tools["send_smtp_email"]
+    assert any(tool.name == sender.name for tool in get_registered_tools(ToolSurface.ACTION))
+    assert approval_required(sender)
+    assert "password" not in sender.public_input_schema["properties"]
+    assert sender.extract_params({"smtp": {"password": "private-secret"}}) == {}
+    assert sender.is_available(
+        {"smtp": {"host": "relay.example.com", "from_address": "a@example.com"}}
+    )
+    assert not sender.is_available({})
+
+
+def test_smtp_classifier_exposes_flat_tool_context() -> None:
+    from core.tool.execution import availability_view
+    from integrations.smtp.tools.tool import SendSMTPEmailTool
+
+    config, key = classify(
+        {
+            "host": "relay.example.com",
+            "from_address": "reports@example.com",
+            "port": 25,
+            "security": "none",
+        },
+        "smtp-test",
+    )
+    assert key == "smtp"
+    assert isinstance(config, dict)
+    assert SendSMTPEmailTool().is_available(availability_view({"smtp": config}))
+
+
+def test_smtp_send_tool_uses_configured_default_recipient(monkeypatch: pytest.MonkeyPatch) -> None:
+    from integrations.smtp.tools import send_smtp_email
+
+    config = {
+        "host": "relay.example.com",
+        "port": 25,
+        "security": "none",
+        "from_address": "reports@example.com",
+        "default_to": "team@example.com",
+    }
+    monkeypatch.setattr(
+        "integrations.smtp.tools.delivery.resolve_effective_integrations",
+        lambda: {"smtp": {"config": config}},
+    )
+    with patch(
+        "integrations.smtp.tools.delivery.send_smtp_report", return_value=(True, "")
+    ) as send:
+        result = send_smtp_email(report="RCA findings", subject="RCA report")
+
+    assert result["sent"] is True
+    assert send.call_args.kwargs["to_address"] == "team@example.com"
+    assert send.call_args.kwargs["smtp_ctx"]["security"] == "none"
+
+
+def test_smtp_send_tool_rejects_header_injection_before_transport() -> None:
+    from integrations.smtp.tools import send_smtp_email
+
+    with patch("integrations.smtp.tools.delivery.send_smtp_report") as send:
+        result = send_smtp_email(report="RCA", subject="Subject\r\nBcc: other@example.com")
+    assert result["sent"] is False
+    assert result["error_type"] == "validation_error"
+    send.assert_not_called()
+
+
+def test_smtp_send_tool_failure_is_not_reported_as_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from integrations.smtp.tools import send_smtp_email
+
+    monkeypatch.setattr(
+        "integrations.smtp.tools.delivery.resolve_effective_integrations",
+        lambda: {
+            "smtp": {
+                "config": {
+                    "host": "relay.example.com",
+                    "from_address": "reports@example.com",
+                    "default_to": "team@example.com",
+                }
+            }
+        },
+    )
+    with patch(
+        "integrations.smtp.tools.delivery.send_smtp_report",
+        return_value=(False, "SMTPRecipientsRefused"),
+    ):
+        result = send_smtp_email(report="RCA", subject="RCA report")
+
+    assert result["status"] == "failed"
+    assert result["sent"] is False
+    assert result["error_type"] == "delivery_error"
+
+
+def test_smtp_send_requires_explicit_ask_authority() -> None:
+    from core.domain.types.tools import ToolSurface
+    from core.llm.types import ToolCall
+    from core.tool import ToolExecutionRequest
+    from surfaces.cli.ask.approval import ApprovalTracker, build_approval_hooks
+    from tools.registry import get_registered_tools
+
+    sender = next(
+        tool for tool in get_registered_tools(ToolSurface.CHAT) if tool.name == "send_smtp_email"
+    )
+    request = ToolExecutionRequest(
+        tool_call=ToolCall(
+            id="send-1", name=sender.name, input={"report": "RCA", "subject": "RCA"}
+        ),
+        tool=sender,
+        arguments={"report": "RCA", "subject": "RCA"},
+        source="smtp",
+        resolved_integrations={},
+    )
+    tracker = ApprovalTracker()
+    denied_hooks = build_approval_hooks(allowed_tools=(), bypass_approvals=False, tracker=tracker)
+    assert denied_hooks.before_tool_call is not None
+    denied = denied_hooks.before_tool_call(request)
+    assert denied is not None and denied.blocked
+    assert tracker.denied_tools == (sender.name,)
+    allowed_hooks = build_approval_hooks(
+        allowed_tools=(sender.name,), bypass_approvals=False, tracker=ApprovalTracker()
+    )
+    assert allowed_hooks.before_tool_call is not None
+    allowed = allowed_hooks.before_tool_call(request)
+    assert allowed is not None and allowed.approved
+
+
+def test_smtp_send_is_discoverable_through_progressive_catalog() -> None:
+    from types import SimpleNamespace
+
+    from core.agent_harness.tools.progressive_tool_catalog import ProgressiveToolCatalog
+    from core.domain.types.tools import ToolSurface
+    from tools.registry import get_registered_tools
+
+    tools = tuple(get_registered_tools(ToolSurface.CHAT))
+    catalog = ProgressiveToolCatalog(
+        SimpleNamespace(skill_discovery_enabled=True),
+        lambda: tools,
+        enabled=True,
+        base_names=(tool.name for tool in tools),
+    )
+    discovery = next(tool for tool in catalog.snapshot() if tool.name == "tool_search")
+    result = discovery.run(query="SMTP email report")
+
+    assert "send_smtp_email" in {item["name"] for item in result["activated"]}
+    assert "send_smtp_email" in {tool.name for tool in catalog.snapshot()}

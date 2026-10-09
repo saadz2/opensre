@@ -44,6 +44,7 @@ the main interactive-login path more reliably on every platform.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -70,7 +71,7 @@ from integrations.llm_cli.output import require_nonempty_output
 from integrations.llm_cli.probe_utils import run_version_probe
 from integrations.llm_cli.semver_utils import parse_semver_three_part
 
-_PROBE_TIMEOUT_SEC = 5.0
+_PROBE_TIMEOUT_SEC = 30.0
 _GH_AUTH_TIMEOUT_SEC = 5.0
 
 # ``gh auth status`` prints a line like ``  ✓ Logged in to github.com account …``.
@@ -206,11 +207,39 @@ def _fallback_copilot_paths() -> list[str]:
     return _default_cli_fallback_paths("copilot")
 
 
+def _copilot_host_response(messages: list[dict[str, object]]) -> str:
+    content = ""
+    for message in messages:
+        requests = message.get("toolRequests")
+        calls = []
+        if isinstance(requests, list):
+            for request in requests:
+                if not isinstance(request, dict):
+                    continue
+                name = request.get("name")
+                if isinstance(name, str) and name.strip():
+                    calls.append(
+                        {
+                            "id": request.get("toolCallId"),
+                            "name": name,
+                            "input": request.get("arguments", {}),
+                        }
+                    )
+        if calls:
+            return json.dumps({"tool_calls": calls})
+        text = message.get("content")
+        if isinstance(text, str) and text.strip():
+            content = text.strip()
+    if not content:
+        raise RuntimeError("Copilot JSONL output contained no assistant response.")
+    return content
+
+
 class CopilotAdapter:
-    """Non-interactive GitHub Copilot CLI (``copilot -p``, programmatic mode)."""
+    """Non-interactive GitHub Copilot CLI with structured JSONL responses."""
 
     name = "copilot"
-    streams_plain_stdout = True
+    streams_plain_stdout = False
     binary_env_key = "COPILOT_BIN"
     install_hint = "npm i -g @github/copilot"
     auth_hint = _AUTH_HINT.removesuffix(".")
@@ -234,7 +263,7 @@ class CopilotAdapter:
                 installed=False,
                 version=None,
                 logged_in=None,
-                bin_path=None,
+                bin_path=binary_path,
                 detail=version_error,
             )
 
@@ -286,18 +315,24 @@ class CopilotAdapter:
 
         # Each flag is required for a non-interactive run; do not drop these
         # without checking `copilot --help`:
-        #   -p PROMPT       enters one-shot mode (without it, copilot opens a TUI).
         #   --no-color      strips ANSI so stdout is parseable.
         #   --no-ask-user   disables the agent's `ask_user` tool, otherwise the
         #                   agent can pause waiting for input even with -p.
-        #   --silent        emits only the agent response, not stats / banner.
         argv: list[str] = [
             binary,
-            "-p",
-            prompt,
+            "--output-format",
+            "json",
+            "--available-tools=__opensre_host_only__",
+            "--deny-tool",
+            "shell",
+            "--deny-tool",
+            "write",
+            "--deny-tool",
+            "url",
+            "--disable-builtin-mcps",
+            "--no-custom-instructions",
             "--no-color",
             "--no-ask-user",
-            "--silent",
         ]
 
         resolved_model = (model or "").strip()
@@ -314,14 +349,28 @@ class CopilotAdapter:
         }
         return CLIInvocation(
             argv=tuple(argv),
-            stdin=None,
+            stdin=prompt,
             cwd=cwd,
             env=env or None,
             timeout_sec=self.default_exec_timeout_sec,
         )
 
     def parse(self, *, stdout: str, stderr: str, returncode: int) -> str:
-        return require_nonempty_output(stdout, stderr, returncode, self.explain_failure)
+        output = require_nonempty_output(stdout, stderr, returncode, self.explain_failure)
+        messages: list[dict[str, object]] = []
+        has_events = False
+        for line in output.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+                continue
+            has_events = True
+            data = event.get("data")
+            if event["type"] == "assistant.message" and isinstance(data, dict):
+                messages.append(data)
+        return _copilot_host_response(messages) if has_events else output
 
     def explain_failure(self, *, stdout: str, stderr: str, returncode: int) -> str:
         from integrations.llm_cli.failure_explain import explain_cli_failure

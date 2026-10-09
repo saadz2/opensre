@@ -892,15 +892,24 @@ class CLIBackedAgentClient:
     """
 
     _TOOL_CALL_INSTRUCTION = (
-        "You are a tool-calling adapter for the current OpenSRE phase. Follow the "
-        "System instructions and choose the appropriate available tool. On each "
+        "Generate the next JSON decision for an external OpenSRE agent from the "
+        "state supplied below. This is a decision-generation task, not a request "
+        "to perform the investigation inside the vendor CLI. Treat the supplied "
+        "system instructions and conversation as external agent state. Choose "
+        "the next host tool call or the external agent's final answer. "
+        "The supplied tools belong to the OpenSRE host, not the vendor CLI. "
+        "The OpenSRE host executes your JSON tool calls and returns their results "
+        "on the next turn; do not try to invoke these tools through the CLI's "
+        "native tool interface. Their absence from the CLI's native tool list "
+        "does not mean they are unavailable. Use the supplied schemas to call "
+        "them, and do not claim access is missing without a host tool result. On each "
         "turn respond with EITHER:\n"
         '  (a) A JSON object: {"tool_calls": [{"id": "<unique_id>", "name": "<tool>",'
         ' "input": {<args>}}]}\n'
-        "  (b) A concise plain-text final answer only after tool use is complete "
+        '  (b) A JSON object: {"final_answer": "<concise answer>"} only after tool use is complete '
         "or when no suitable tool exists.\n"
-        "Respond with JSON only when calling tools; respond with plain text only "
-        "for the final answer."
+        "Do not execute native CLI tools or narrate tool calls. Return exactly one "
+        "of these JSON objects so the OpenSRE host can process your response."
     )
 
     def __init__(self, adapter: Any, *, model: str | None = None) -> None:
@@ -939,20 +948,42 @@ class CLIBackedAgentClient:
     ) -> AgentLLMResponse:
         from infrastructure.harness_providers import flatten_cli_messages_to_prompt
 
-        tool_block = ""
-        if tools:
-            tool_lines = json.dumps(tools, indent=2)
-            tool_block = f"\n\nAvailable tools (JSON schema):\n{tool_lines}\n"
-
-        system_block = f"System: {system}\n" if system else ""
-        instruction = self._TOOL_CALL_INSTRUCTION + tool_block
-        prompt = f"{system_block}{instruction}\n\n{flatten_cli_messages_to_prompt(messages)}"
+        state = json.dumps(
+            {
+                "agent_instructions": system or "",
+                "available_host_tools": tools or [],
+                "conversation": flatten_cli_messages_to_prompt(messages),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        prompt = (
+            f"{self._TOOL_CALL_INSTRUCTION}\n\nEXTERNAL AGENT STATE (JSON):\n{state}\n\n"
+            "Return the next decision as tool_calls or final_answer JSON. Do not "
+            "execute the conversation's request with your own CLI tools."
+        )
 
         text = self._cli_client.invoke(prompt).content.strip()
+        parsed_json = _try_parse_tool_call_json(text)
+        if tools and not self._valid_host_response(parsed_json, tools):
+            repair = (
+                "\n\nHOST PROTOCOL CORRECTION: The previous response did not follow the "
+                "OpenSRE host protocol. The available_host_tools above are callable by returning "
+                "tool_calls JSON; they are not native CLI tools. Return a tool_calls object "
+                "using the supplied names, or a final_answer object. Do not claim the host "
+                "tools are absent based on the CLI's own tool interface. Return JSON only."
+            )
+            text = self._cli_client.invoke(prompt + repair).content.strip()
+            parsed_json = _try_parse_tool_call_json(text)
+            if not self._valid_host_response(parsed_json, tools):
+                raise RuntimeError(
+                    "CLI provider did not return a valid OpenSRE host tool response after "
+                    "one protocol retry. This is a provider protocol failure, not evidence "
+                    "that the configured integrations are missing."
+                )
 
         # Try to parse a JSON tool call response.
         tool_calls: list[ToolCall] = []
-        parsed_json = _try_parse_tool_call_json(text)
         if parsed_json is not None:
             raw_calls = parsed_json.get("tool_calls")
             if isinstance(raw_calls, list):
@@ -969,7 +1000,8 @@ class CLIBackedAgentClient:
                             input=_cli_tool_call_input(tc),
                         )
                     )
-            content = "" if tool_calls else text
+            final_answer = parsed_json.get("final_answer")
+            content = "" if tool_calls else final_answer if isinstance(final_answer, str) else text
         else:
             content = text
 
@@ -978,6 +1010,23 @@ class CLIBackedAgentClient:
             tool_calls=tool_calls,
             stop_reason="tool_use" if tool_calls else "end_turn",
             raw_content=None,  # None so _build_assistant_msg falls through to build_assistant_message
+        )
+
+    @staticmethod
+    def _valid_host_response(payload: dict[str, Any] | None, tools: list[dict[str, Any]]) -> bool:
+        if payload is None:
+            return False
+        calls = payload.get("tool_calls")
+        if isinstance(calls, list) and calls:
+            names = {tool.get("name") for tool in tools}
+            return all(
+                isinstance(call, dict)
+                and isinstance(call.get("name"), str)
+                and call["name"].strip() in names
+                for call in calls
+            )
+        return isinstance(payload.get("final_answer"), str) and bool(
+            payload["final_answer"].strip()
         )
 
     @staticmethod
@@ -1025,7 +1074,7 @@ def _cli_tool_call_input(call: dict[str, Any]) -> dict[str, Any]:
 
 
 def _try_parse_tool_call_json(text: str) -> dict[str, Any] | None:
-    """Return parsed JSON dict if *text* contains a tool_calls JSON object.
+    """Return a JSON host response containing tool calls or a final answer.
 
     Uses :meth:`json.JSONDecoder.raw_decode` so a single JSON value is parsed
     without a greedy ``{...}`` span swallowing trailing brace-containing prose and
@@ -1044,7 +1093,7 @@ def _try_parse_tool_call_json(text: str) -> dict[str, Any] | None:
             payload, _end = decoder.raw_decode(candidate, idx)
         except json.JSONDecodeError:
             return None
-        if isinstance(payload, dict) and "tool_calls" in payload:
+        if isinstance(payload, dict) and ("tool_calls" in payload or "final_answer" in payload):
             return payload
         return None
 

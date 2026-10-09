@@ -150,6 +150,12 @@ class CLIBackedLLMClient:
 
         probe = self._probe()
         if not probe.installed or not probe.bin_path:
+            if probe.bin_path:
+                raise RuntimeError(
+                    f"{self._adapter.name} CLI was found at {probe.bin_path}, but its "
+                    f"startup check failed. Retry or run the binary with --version "
+                    f"to diagnose the failure. ({probe.detail})"
+                )
             raise RuntimeError(
                 f"{self._adapter.name} CLI not found. {self._adapter.install_hint} "
                 f"or set {self._adapter.binary_env_key} to the full binary path. "

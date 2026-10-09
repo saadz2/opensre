@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def classify(
     credentials: dict[str, Any], record_id: str
-) -> tuple[SMTPIntegrationConfig | None, str | None]:
+) -> tuple[dict[str, Any] | None, str | None]:
     try:
         cfg = SMTPIntegrationConfig.model_validate(
             {
@@ -29,7 +29,7 @@ def classify(
     except Exception as exc:
         report_classify_failure(exc, logger=logger, integration="smtp", record_id=record_id)
         return None, None
-    return cfg, "smtp"
+    return cfg.model_dump(), "smtp"
 
 
 __all__ = ["classify"]

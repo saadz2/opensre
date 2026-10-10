@@ -577,9 +577,15 @@ if TYPE_CHECKING:
     from config.constants.github import (
         GITHUB_MCP_URL_ENV as GITHUB_MCP_URL_ENV,
     )
+    from config.constants.github import (
+        GITHUB_PAT_ORIGIN as GITHUB_PAT_ORIGIN,
+    )
     from config.constants.github import GITHUB_TOKEN_CHECKLIST as GITHUB_TOKEN_CHECKLIST
     from config.constants.github import (
         GITHUB_TOKEN_ENV as GITHUB_TOKEN_ENV,
+    )
+    from config.constants.github import (
+        OPENSRE_GITHUB_PAT_ENV as OPENSRE_GITHUB_PAT_ENV,
     )
     from config.constants.gitlab import (
         GITLAB_AUTH_TOKEN_ENV as GITLAB_AUTH_TOKEN_ENV,

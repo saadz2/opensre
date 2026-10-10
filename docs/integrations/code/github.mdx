@@ -23,7 +23,7 @@ Once GitHub is connected, the interactive-shell **action agent** uses **`github_
 ## Prerequisites
 
 - GitHub account with repository access
-- An authorized GitHub connection created in the OpenSRE app
+- An authorized GitHub app connection, or an explicitly configured local PAT
 - For agent fetches and pushes from an existing checkout, HTTPS GitHub remotes; SSH keys do not replace the app connection
 - For chat `github_cli`: the `gh` binary on `PATH` (OpenSRE supplies the token). If it is missing, follow the [GitHub CLI installation guide](https://cli.github.com/).
 
@@ -68,8 +68,29 @@ page. Setup stays pending until OpenSRE refreshes an authorized app connection.
 On a signed-out machine, run `opensre account login` to load your app connections.
 In the setup menu, choose **I've connected GitHub — continue** after connecting.
 
-Local credential-store entries and `GITHUB_TOKEN`, `GH_TOKEN`, and
-`GITHUB_MCP_AUTH_TOKEN` do not authorize agent GitHub tools or their background work.
+#### Local PAT alternative
+
+For a local CLI or single-user OpenSRE process, you can use a dedicated PAT
+instead of connecting through the app. Add it to the active `.env` file:
+
+```dotenv
+OPENSRE_GITHUB_PAT=github_pat_...
+```
+
+Prefer a fine-grained PAT restricted to the required repositories and permissions.
+The PAT is used only when no OpenSRE app GitHub connection is selected. A selected
+app connection takes precedence, and an unavailable or ambiguous app selection
+fails closed rather than falling back to the PAT. The PAT is available to every
+OpenSRE process that loads this environment, so avoid this mode on shared or
+multi-user gateways. Background jobs that require an app connection continue to
+require that connection.
+
+After setting the value, restart OpenSRE and run `opensre integrations verify github`.
+This PAT authorizes the direct GitHub agent tools, including reading runbooks; it
+does not configure a separate GitHub MCP server.
+
+`GITHUB_TOKEN` and `GH_TOKEN` do not authorize agent GitHub tools.
+`GITHUB_MCP_AUTH_TOKEN` authorizes only the separately configured GitHub MCP transport.
 
 ## Credentials
 
@@ -78,7 +99,7 @@ Local credential-store entries and `GITHUB_TOKEN`, `GH_TOKEN`, and
 1. Open [New fine-grained personal access token](https://github.com/settings/personal-access-tokens/new).
 2. Name it **OpenSRE**, choose an expiry, and select the owner and repositories OpenSRE may use.
 3. Grant read access to Contents, Metadata, Issues, Pull requests, and Actions. Add write access only for operations you want OpenSRE to perform.
-4. Generate and copy the token into the OpenSRE app. If your organization requires approval, approve it before reconnecting.
+4. Generate and copy the token into the OpenSRE app, or store it as `OPENSRE_GITHUB_PAT` for local CLI use. If your organization requires approval, approve it before connecting.
 
 ## Tools
 

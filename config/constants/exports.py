@@ -268,6 +268,8 @@ EXPORTS: dict[str, str] = {
     "GITHUB_PROVENANCE_PARAM": "github",
     "GITHUB_MCP_ARGS_ENV": "github",
     "GITHUB_MCP_AUTH_TOKEN_ENV": "github",
+    "GITHUB_PAT_ORIGIN": "github",
+    "OPENSRE_GITHUB_PAT_ENV": "github",
     "GITHUB_MCP_COMMAND_ENV": "github",
     "GITHUB_MCP_MODE_ENV": "github",
     "GITHUB_MCP_TOOLSETS_ENV": "github",

@@ -14,6 +14,7 @@ from config.constants.account import (
 from config.constants.github import (
     GITHUB_CONNECTION_ORIGIN_TAG,
     GITHUB_LOCAL_ORIGIN,
+    GITHUB_PAT_ORIGIN,
     GITHUB_UNKNOWN_ORIGIN,
     GITHUB_WEBAPP_ORIGIN,
 )
@@ -84,16 +85,18 @@ def _instances(record: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def select_github_connection(resolved: dict[str, Any], connection_id: str | None) -> dict[str, Any]:
-    """Select one GitHub grant, or disable GitHub when that choice is unusable.
+    """Select one app grant or an explicit local PAT, or disable GitHub safely.
 
     An id that is not in this process's grants is ignored only when exactly one
     grant is available. A matched grant that is not available, or several grants
-    with no single default, disables GitHub without falling back to another account.
+    with no single default, disables GitHub without falling back to another account
+    or the local PAT. The PAT is considered only when no app grant exists and no
+    connection id was explicitly selected.
     A personal default outranks a workspace default.
     """
     selected = dict(resolved)
     if "_all_github_instances" not in resolved:
-        return selected
+        return _select_local_pat(selected) if connection_id is None else selected
     instances = list(resolved.get("_all_github_instances", []))
     rejected = [
         item for item in instances if item.get(GITHUB_CONNECTION_ORIGIN_TAG) != GITHUB_WEBAPP_ORIGIN
@@ -108,6 +111,8 @@ def select_github_connection(resolved: dict[str, Any], connection_id: str | None
     instances = [
         item for item in instances if item.get(GITHUB_CONNECTION_ORIGIN_TAG) == GITHUB_WEBAPP_ORIGIN
     ]
+    if not instances:
+        return _select_local_pat(selected, fail_closed=True) if connection_id is None else selected
     if connection_id and not _has_connection(instances, connection_id):
         available = [item for item in instances if _grant_available(item)]
         if len(available) == 1:
@@ -126,6 +131,27 @@ def select_github_connection(resolved: dict[str, Any], connection_id: str | None
             if matches
             else "github_connection_required",
             "connection_id": connection_id or "",
+        }
+    return selected
+
+
+def _select_local_pat(selected: dict[str, Any], *, fail_closed: bool = False) -> dict[str, Any]:
+    """Use an explicit local PAT only when no app-grant selection is in play."""
+    from integrations.github.rest_token import local_github_pat
+
+    token = local_github_pat()
+    if token:
+        selected["github"] = {
+            "auth_token": token,
+            GITHUB_CONNECTION_ORIGIN_TAG: GITHUB_PAT_ORIGIN,
+            "connection_id": "",
+            "connection_verified": True,
+        }
+    elif fail_closed:
+        selected["github"] = {
+            "connection_verified": False,
+            "connection_selection_error": "github_connection_required",
+            "connection_id": "",
         }
     return selected
 

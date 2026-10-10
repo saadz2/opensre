@@ -139,6 +139,26 @@ def test_env_service_list_uses_plain_env_without_credentials_file(monkeypatch: A
     assert "gitlab" in catalog.load_env_integration_services()
 
 
+def test_local_github_pat_marks_github_configured_without_credentials_file(
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setenv("OPENSRE_GITHUB_PAT", "fine-grained-test-token")
+
+    def _file_should_not_run(*_args: Any, **_kwargs: Any) -> str:
+        raise AssertionError("startup metadata path must not read the credentials file")
+
+    monkeypatch.setattr("config.secrets.local_file.get", _file_should_not_run)
+
+    assert "github" in catalog.load_env_integration_services()
+
+
+def test_configured_services_include_local_github_pat(monkeypatch: Any) -> None:
+    monkeypatch.setenv("OPENSRE_GITHUB_PAT", "fine-grained-test-token")
+    monkeypatch.setattr(catalog, "load_integrations", list)
+
+    assert "github" in catalog.configured_integration_services()
+
+
 def test_slack_bot_token_marks_slack_configured(monkeypatch: Any) -> None:
     # The Slack gateway runs on SLACK_BOT_TOKEN; slack must show as a configured
     # integration so the agent doesn't self-describe as telegram-only on Slack.

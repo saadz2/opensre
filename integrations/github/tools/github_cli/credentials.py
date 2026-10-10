@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from config.constants.github import GITHUB_CONNECTION_ORIGIN_TAG, GITHUB_WEBAPP_ORIGIN
+from config.constants.github import GITHUB_CONNECTION_ID_PARAM, GITHUB_CONNECTION_ORIGIN_PARAM
+from integrations.github.rest_token import github_connection_origin, github_rest_token
 
 # Keys ``extract_params`` may inject that must beat model-supplied kwargs.
 # Narrower than ``integrations.github.helpers.GITHUB_INJECTED_PARAMS``: the CLI
@@ -24,14 +25,16 @@ def github_source_available(sources: dict[str, dict]) -> bool:
 
 def github_creds(gh: dict[str, Any]) -> dict[str, Any]:
     """Map classified GitHub integration fields to tool credential kwargs."""
-    if gh.get(GITHUB_CONNECTION_ORIGIN_TAG) != GITHUB_WEBAPP_ORIGIN:
+    origin = github_connection_origin({"github": gh})
+    token = github_rest_token({"github": gh})
+    if not token or not origin:
         return {}
     creds: dict[str, Any] = {}
     if gh.get("connection_id"):
-        creds["github_connection_id"] = gh["connection_id"]
-    token = gh.get("github_token") or gh.get("auth_token")
+        creds[GITHUB_CONNECTION_ID_PARAM] = gh["connection_id"]
     if token:
         creds["github_token"] = token
+    creds[GITHUB_CONNECTION_ORIGIN_PARAM] = origin
     return creds
 
 

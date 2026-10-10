@@ -697,6 +697,80 @@ def test_verify_github_reports_credential_less_store_record_as_missing() -> None
     assert "without an auth token" in verdict["detail"]
 
 
+def test_verify_github_checks_local_pat_without_mcp_or_app_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from config.constants.github import GITHUB_CONNECTION_ORIGIN_TAG, GITHUB_PAT_ORIGIN
+
+    monkeypatch.setattr(
+        "integrations.github.verifier.GitHubRestClient.request",
+        lambda _self, method, path: (
+            {"login": "pat-user"} if method == "GET" and path == "/user" else {}
+        ),
+    )
+    result = _verify_github(
+        "local env",
+        {GITHUB_CONNECTION_ORIGIN_TAG: GITHUB_PAT_ORIGIN, "auth_token": "test-pat"},
+    )
+
+    assert result["status"] == "passed"
+    assert "pat-user" in result["detail"]
+
+
+def test_verify_github_keeps_app_connection_path_when_local_pat_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from config.constants.github import GITHUB_CONNECTION_ORIGIN_TAG, GITHUB_WEBAPP_ORIGIN
+
+    monkeypatch.setenv("OPENSRE_GITHUB_PAT", "local-pat")
+    monkeypatch.setattr(
+        f"{_verify_github.__module__}.validate_github_mcp_config",
+        lambda _config: SimpleNamespace(
+            ok=True, detail="App GitHub connection ok", failure_category=""
+        ),
+    )
+    monkeypatch.setattr(
+        "integrations.github.verifier.GitHubRestClient.request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("PAT route must not run")),
+    )
+
+    result = _verify_github(
+        "remote",
+        {
+            GITHUB_CONNECTION_ORIGIN_TAG: GITHUB_WEBAPP_ORIGIN,
+            "url": "https://api.githubcopilot.com/mcp/",
+            "mode": "streamable-http",
+            "auth_token": "app-token",
+        },
+    )
+
+    assert result["status"] == "passed"
+    assert result["detail"] == "App GitHub connection ok"
+
+
+def test_integrations_verify_uses_local_pat_when_no_store_or_app_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from integrations import verify as verify_module
+
+    captured: dict[str, Any] = {}
+
+    def _verifier(source: str, config: dict[str, Any]) -> dict[str, str]:
+        captured.update(source=source, config=config)
+        return {"service": "github", "source": source, "status": "passed", "detail": "PAT"}
+
+    monkeypatch.setattr(verify_module, "get_verifier", lambda _service: _verifier)
+    monkeypatch.setattr("integrations.github.rest_token.local_github_pat", lambda: "test-pat")
+
+    result = verify_module._verify_one("github", {}, send_slack_test=False)
+
+    assert result["status"] == "passed"
+    assert captured["source"] == "local env"
+    assert captured["config"]["auth_token"] == "test-pat"
+
+
 def test_verify_sentry_passes_with_valid_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "integrations.verification.validation.verify_with_validation_result",

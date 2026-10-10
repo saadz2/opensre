@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, cast
 
+from config.constants.github import OPENSRE_GITHUB_PAT_ENV
 from config.constants.google_docs import (
     GOOGLE_CREDENTIALS_FILE_ENV,
     GOOGLE_DRIVE_FOLDER_ID_ENV,
@@ -135,7 +136,11 @@ def load_env_integration_services() -> list[str]:
     )
     add(
         "github",
-        (_env_is_set("GITHUB_MCP_COMMAND") and os.getenv("GITHUB_MCP_MODE", "").strip() == "stdio")
+        _env_is_set(OPENSRE_GITHUB_PAT_ENV)
+        or (
+            _env_is_set("GITHUB_MCP_COMMAND")
+            and os.getenv("GITHUB_MCP_MODE", "").strip() == "stdio"
+        )
         or _env_is_set("GITHUB_MCP_URL"),
     )
     add("sentry", _all_env("SENTRY_ORG_SLUG", "SENTRY_AUTH_TOKEN"))

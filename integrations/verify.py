@@ -123,6 +123,16 @@ def _verify_one(
         )
 
     integration = effective_integrations.get(current_service)
+    if not integration and current_service == "github":
+        from config.constants.github import GITHUB_CONNECTION_ORIGIN_TAG, GITHUB_PAT_ORIGIN
+        from integrations.github.rest_token import local_github_pat
+
+        pat = local_github_pat()
+        if pat:
+            integration = {
+                "source": "local env",
+                "config": {GITHUB_CONNECTION_ORIGIN_TAG: GITHUB_PAT_ORIGIN, "auth_token": pat},
+            }
     if not integration:
         return result(
             current_service,

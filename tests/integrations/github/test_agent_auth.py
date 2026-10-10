@@ -1,15 +1,17 @@
-"""Agent GitHub authentication cannot be promoted by local or model metadata."""
+"""Agent GitHub auth supports app grants or an explicit PAT, never model-supplied credentials."""
 
 from typing import Any
 from unittest.mock import Mock
 
 import pytest
 
+from config.constants import OPENSRE_GITHUB_PAT_ENV
 from core.llm.types import ToolCall
-from core.tool.execution import execute_tool_calls
+from core.tool.execution import availability_view, execute_tool_calls
 from infrastructure.harness_providers import bound_github_connection
 from integrations.catalog import classify_integrations, merge_integrations_by_service
 from integrations.github import app_connection, filter_github_connected_services
+from integrations.github.connections import select_github_connection
 from integrations.github.rest_token import github_rest_token
 from integrations.github.tools.github_cli.tool import github_cli
 from integrations.store import load_integrations, replace_integrations
@@ -36,6 +38,7 @@ def _record(connection: str, token: str, *, origin: str = "webapp") -> dict[str,
 
 
 def test_local_copied_app_metadata_is_ineligible_and_cannot_shadow_remote(monkeypatch, tmp_path):
+    monkeypatch.delenv(OPENSRE_GITHUB_PAT_ENV, raising=False)
     monkeypatch.setattr("integrations.store.STORE_PATH", tmp_path / "integrations.json")
     replace_integrations([_record("copied", "local-token")])
     local = load_integrations()
@@ -45,6 +48,56 @@ def test_local_copied_app_metadata_is_ineligible_and_cannot_shadow_remote(monkey
     merged = merge_integrations_by_service([app], local)
     assert github_rest_token(classify_integrations(merged)) == "app-token"
     assert filter_github_connected_services(["github", "slack"], merged) == ["github", "slack"]
+
+
+def test_explicit_local_pat_authorizes_when_no_app_grant_exists(monkeypatch):
+    monkeypatch.setenv(OPENSRE_GITHUB_PAT_ENV, "fine-grained-pat")
+    selected = select_github_connection({}, None)
+    assert selected["github"]["connection_origin"] == "local_pat"
+    assert github_rest_token(selected) == "fine-grained-pat"
+    assert github_cli.__opensre_registered_tool__.is_available(availability_view(selected))
+
+
+def test_app_grant_takes_precedence_over_local_pat(monkeypatch):
+    monkeypatch.setenv(OPENSRE_GITHUB_PAT_ENV, "fine-grained-pat")
+    selected = select_github_connection(classify_integrations([_record("app", "app-token")]), None)
+    assert selected["github"]["connection_origin"] == "webapp"
+    assert github_rest_token(selected) == "app-token"
+
+
+def test_failed_explicit_app_selection_does_not_fall_back_to_local_pat(monkeypatch):
+    monkeypatch.setenv(OPENSRE_GITHUB_PAT_ENV, "fine-grained-pat")
+    selected = select_github_connection(
+        classify_integrations([_record("org-other", "")]), "org-other"
+    )
+    assert selected["github"]["connection_selection_error"] == "github_connection_unavailable"
+    assert not github_rest_token(selected)
+
+
+def test_generic_tokens_remain_ignored_without_the_explicit_pat(monkeypatch):
+    monkeypatch.delenv(OPENSRE_GITHUB_PAT_ENV, raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "generic-token")
+    monkeypatch.setenv("GH_TOKEN", "generic-token")
+    assert not github_rest_token({})
+
+
+def test_model_supplied_github_token_cannot_override_local_pat(monkeypatch):
+    seen: list[str] = []
+
+    def run_gh(**kwargs: Any) -> dict[str, Any]:
+        seen.append(kwargs["github_token"])
+        return {"ok": True, "stdout": "", "stderr": "", "exit_code": 0}
+
+    monkeypatch.setenv(OPENSRE_GITHUB_PAT_ENV, "fine-grained-pat")
+    monkeypatch.setattr("integrations.github.tools.github_cli.tool.run_gh", run_gh)
+    tool = github_cli.__opensre_registered_tool__
+    call = ToolCall(
+        id="pat-call",
+        name=tool.name,
+        input={"args": ["api", "user"], "github_token": "model-token"},
+    )
+    execute_tool_calls([call], [tool], {})
+    assert seen == ["fine-grained-pat"]
 
 
 @pytest.mark.parametrize("origin", ["cli", "unknown"])
@@ -85,6 +138,7 @@ def test_model_cannot_override_injected_token_or_provenance(monkeypatch):
 def test_empty_injection_never_falls_back_to_environment(monkeypatch):
     for name in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_MCP_AUTH_TOKEN"):
         monkeypatch.setenv(name, "local-token")
+    monkeypatch.setenv(OPENSRE_GITHUB_PAT_ENV, "fine-grained-pat")
     assert github_rest_token(explicit="", connection_origin="webapp") == ""
     run = Mock(side_effect=AssertionError("GitHub I/O"))
     monkeypatch.setattr("integrations.github.tools.github_cli.tool.run_gh", run)

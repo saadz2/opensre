@@ -15,6 +15,7 @@ from surfaces.cli.wizard.integration_health import (
     validate_discord_bot,
     validate_github_mcp_integration,
     validate_grafana_integration,
+    validate_opensearch_integration,
     validate_servicenow_integration,
     validate_slack_webhook,
 )
@@ -79,6 +80,27 @@ def test_validate_grafana_integration_fails_when_no_datasources_are_found(monkey
 
     assert result.ok is False
     assert "no datasources" in result.detail.lower()
+
+
+def test_validate_opensearch_uses_service_ca_bundle(monkeypatch) -> None:
+    from integrations.elasticsearch import ElasticsearchClient
+
+    captured: dict[str, object] = {}
+
+    def fake_init(self, config) -> None:
+        captured["config"] = config
+
+    def fake_get_cluster_health(self) -> dict[str, object]:
+        return {"success": True, "cluster_name": "test", "status": "green"}
+
+    monkeypatch.setenv("OPENSEARCH_CA_BUNDLE", "/etc/ssl/opensearch-ca.pem")
+    monkeypatch.setattr(ElasticsearchClient, "__init__", fake_init)
+    monkeypatch.setattr(ElasticsearchClient, "get_cluster_health", fake_get_cluster_health)
+
+    result = validate_opensearch_integration(url="https://opensearch.example.test")
+
+    assert result.ok is True
+    assert captured["config"].ca_bundle == "/etc/ssl/opensearch-ca.pem"
 
 
 @pytest.mark.parametrize("status_code", [200, 400, 403, 405])

@@ -888,6 +888,9 @@ if TYPE_CHECKING:
         OPENSEARCH_API_KEY_ENV as OPENSEARCH_API_KEY_ENV,
     )
     from config.constants.opensearch import (
+        OPENSEARCH_CA_BUNDLE_ENV as OPENSEARCH_CA_BUNDLE_ENV,
+    )
+    from config.constants.opensearch import (
         OPENSEARCH_INTEGRATION_SETUP_CLI as OPENSEARCH_INTEGRATION_SETUP_CLI,
     )
     from config.constants.opensearch import (

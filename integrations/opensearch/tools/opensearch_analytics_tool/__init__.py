@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from config.constants.opensearch import OPENSEARCH_CA_BUNDLE_ENV
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
 from core.tool_framework import tool
@@ -110,6 +111,8 @@ def query_opensearch_analytics(
     **_kwargs: Any,
 ) -> dict[str, Any]:
     """Fetch bounded logs from OpenSearch-compatible analytics endpoints."""
+    import os
+
     endpoint = url.strip().rstrip("/")
     if not endpoint:
         return not_configured("opensearch", vendor="OpenSearch")
@@ -122,6 +125,7 @@ def query_opensearch_analytics(
             username=username.strip() or None,
             password=password.strip() or None,
             index_pattern=index_pattern or "*",
+            ca_bundle=os.getenv(OPENSEARCH_CA_BUNDLE_ENV, "").strip() or None,
         )
     )
     result = client.search_logs(

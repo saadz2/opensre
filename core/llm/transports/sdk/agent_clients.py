@@ -965,6 +965,7 @@ class CLIBackedAgentClient:
 
         text = self._cli_client.invoke(prompt).content.strip()
         parsed_json = _try_parse_tool_call_json(text)
+        parsed_json = self._discover_hidden_tools(parsed_json, tools or [])
         if tools and not self._valid_host_response(parsed_json, tools):
             repair = (
                 "\n\nHOST PROTOCOL CORRECTION: The previous response did not follow the "
@@ -975,6 +976,7 @@ class CLIBackedAgentClient:
             )
             text = self._cli_client.invoke(prompt + repair).content.strip()
             parsed_json = _try_parse_tool_call_json(text)
+            parsed_json = self._discover_hidden_tools(parsed_json, tools)
             if not self._valid_host_response(parsed_json, tools):
                 raise RuntimeError(
                     "CLI provider did not return a valid OpenSRE host tool response after "
@@ -1011,6 +1013,37 @@ class CLIBackedAgentClient:
             stop_reason="tool_use" if tool_calls else "end_turn",
             raw_content=None,  # None so _build_assistant_msg falls through to build_assistant_message
         )
+
+    @staticmethod
+    def _discover_hidden_tools(
+        payload: dict[str, Any] | None, tools: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        names = {tool.get("name") for tool in tools}
+        if payload is None or "tool_search" not in names:
+            return payload
+        calls = payload.get("tool_calls")
+        if not isinstance(calls, list) or not calls:
+            return payload
+        hidden: dict[str, None] = {}
+        for call in calls:
+            if not isinstance(call, dict) or not isinstance(call.get("name"), str):
+                return payload
+            name = call["name"].strip()
+            if not name:
+                return payload
+            if name not in names:
+                hidden[name] = None
+        if not hidden:
+            return payload
+        return {
+            "tool_calls": [
+                {
+                    "id": "discover_host_tools",
+                    "name": "tool_search",
+                    "input": {"names": list(hidden)},
+                }
+            ]
+        }
 
     @staticmethod
     def _valid_host_response(payload: dict[str, Any] | None, tools: list[dict[str, Any]]) -> bool:

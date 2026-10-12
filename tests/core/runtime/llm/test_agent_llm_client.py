@@ -1584,6 +1584,56 @@ def test_cli_backed_agent_client_repairs_native_tool_confusion() -> None:
     assert result.tool_calls[0].name == "query_grafana_metrics"
 
 
+def test_cli_backed_agent_client_discovers_hidden_tools_before_execution() -> None:
+    from unittest.mock import MagicMock
+
+    from core.llm.transports.sdk.agent_clients import CLIBackedAgentClient
+    from core.llm.types import LLMResponse
+
+    client = CLIBackedAgentClient.__new__(CLIBackedAgentClient)
+    backend = MagicMock()
+    backend.invoke.return_value = LLMResponse(
+        content='{"tool_calls": [{"name": "query_elasticsearch_logs", '
+        '"input": {"query": "private argument"}}, '
+        '{"name": "update_plan", "input": {}}]}'
+    )
+    client._cli_client = backend
+    result = client.invoke(
+        [{"role": "user", "content": "Check traffic before the crash"}],
+        tools=[
+            {"name": "tool_search", "input_schema": {"type": "object"}},
+            {"name": "update_plan", "input_schema": {"type": "object"}},
+        ],
+    )
+
+    backend.invoke.assert_called_once()
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].name == "tool_search"
+    assert result.tool_calls[0].input == {"names": ["query_elasticsearch_logs"]}
+    assert result.content == ""
+
+
+def test_cli_backed_agent_client_does_not_allow_hidden_tools_without_discovery() -> None:
+    from unittest.mock import MagicMock
+
+    from core.llm.transports.sdk.agent_clients import CLIBackedAgentClient
+    from core.llm.types import LLMResponse
+
+    client = CLIBackedAgentClient.__new__(CLIBackedAgentClient)
+    backend = MagicMock()
+    backend.invoke.return_value = LLMResponse(
+        content='{"tool_calls": [{"name": "query_elasticsearch_logs", "input": {}}]}'
+    )
+    client._cli_client = backend
+
+    with pytest.raises(RuntimeError, match="provider protocol failure"):
+        client.invoke(
+            [{"role": "user", "content": "Check logs"}],
+            tools=[{"name": "update_plan", "input_schema": {"type": "object"}}],
+        )
+    assert backend.invoke.call_count == 2
+
+
 def test_cli_backed_agent_client_bounds_invalid_protocol_retries() -> None:
     from unittest.mock import MagicMock
 

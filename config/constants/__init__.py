@@ -926,6 +926,9 @@ if TYPE_CHECKING:
     from config.constants.pagerduty import (
         PAGERDUTY_BASE_URL_ENV as PAGERDUTY_BASE_URL_ENV,
     )
+    from config.constants.pagerduty import (
+        PAGERDUTY_SERVICE_IDS_ENV as PAGERDUTY_SERVICE_IDS_ENV,
+    )
     from config.constants.paths import (
         CONTEXT_ROOT_ENV as CONTEXT_ROOT_ENV,
     )

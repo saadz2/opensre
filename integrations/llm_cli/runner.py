@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -37,6 +37,9 @@ from integrations.llm_cli.errors import (
 )
 from integrations.llm_cli.subprocess_env import build_cli_subprocess_env
 from integrations.llm_cli.text import flatten_messages_to_prompt
+
+if TYPE_CHECKING:
+    from infrastructure.safety.masking.prompt import PromptPrivacy
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +89,7 @@ class _PreparedInvocation:
     merged_env: dict[str, str]
     auth_probe_unclear: bool
     auth_probe_detail: str
+    privacy: PromptPrivacy
 
 
 @dataclass(frozen=True)
@@ -144,9 +148,13 @@ class CLIBackedLLMClient:
         _ = self._max_tokens
 
         from infrastructure.safety.guardrails.apply import apply_guardrails_to_text
+        from infrastructure.safety.masking.policy import MaskingPolicy
+        from infrastructure.safety.masking.prompt import PromptPrivacy
 
         flat = flatten_messages_to_prompt(prompt_or_messages)
+        privacy = PromptPrivacy(MaskingPolicy.from_env())
         flat = apply_guardrails_to_text(flat)
+        flat = privacy.mask(flat)
 
         probe = self._probe()
         if not probe.installed or not probe.bin_path:
@@ -193,6 +201,7 @@ class CLIBackedLLMClient:
             merged_env=merged_env,
             auth_probe_unclear=auth_probe_unclear,
             auth_probe_detail=probe.detail,
+            privacy=privacy,
         )
 
     def _response_from_completed_process(
@@ -203,9 +212,13 @@ class CLIBackedLLMClient:
         stderr: str,
         auth_probe_unclear: bool,
         auth_probe_detail: str,
+        privacy: PromptPrivacy | None = None,
     ) -> LLMResponse:
         out = _strip_ansi(stdout or "")
         err = _strip_ansi(stderr or "")
+        if privacy is not None:
+            out = privacy.redact(out)
+            err = privacy.redact(err)
 
         if returncode != 0:
             # Exit code 130 = subprocess terminated by SIGINT (Ctrl+C); raise
@@ -263,6 +276,8 @@ class CLIBackedLLMClient:
             raise RuntimeError(message)
 
         content = self._adapter.parse(stdout=out, stderr=err, returncode=returncode)
+        if privacy is not None:
+            content = privacy.restore(content)
         content = _strip_ansi(content).strip()
         if err:
             logger.debug(
@@ -319,6 +334,7 @@ class CLIBackedLLMClient:
                 stderr=proc.stderr or "",
                 auth_probe_unclear=prepared.auth_probe_unclear,
                 auth_probe_detail=prepared.auth_probe_detail,
+                privacy=prepared.privacy,
             )
 
         raise CLITimeoutError(f"{self._adapter.name} reported repeated temporary failures.")
@@ -454,7 +470,12 @@ class CLIBackedLLMClient:
         ``invoke`` path so JSON envelopes or status records are parsed before
         anything reaches the terminal.
         """
-        if getattr(self._adapter, "streams_plain_stdout", False) is not True:
+        from infrastructure.safety.masking.policy import MaskingPolicy
+
+        if (
+            MaskingPolicy.from_env().enabled
+            or getattr(self._adapter, "streams_plain_stdout", False) is not True
+        ):
             yield self.invoke(prompt_or_messages).content
             return
 

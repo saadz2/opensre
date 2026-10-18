@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -217,8 +218,9 @@ def test_toolcall_cli_invocation_uses_low_reasoning_effort(
     assert captured["reasoning_effort"] == "low"
 
 
-def test_invoke_stream_yields_plain_stdout_before_process_exit() -> None:
+def test_invoke_stream_yields_plain_stdout_before_process_exit(monkeypatch) -> None:
     """Plain-text CLI providers should not buffer a long answer until exit."""
+    monkeypatch.setenv("OPENSRE_MASK_ENABLED", "false")
     script = (
         "import sys, time; "
         "sys.stdout.write('a' * 200); sys.stdout.flush(); "
@@ -238,3 +240,113 @@ def test_invoke_stream_yields_plain_stdout_before_process_exit() -> None:
     assert first == "a" * 160
     assert first_elapsed < 0.8
     assert first + rest == ("a" * 200) + "done"
+
+
+def test_masking_enabled_buffers_split_stream_placeholders(monkeypatch) -> None:
+    monkeypatch.setenv("OPENSRE_MASK_ENABLED", "true")
+    monkeypatch.setenv("OPENSRE_MASK_KINDS", "pod")
+    monkeypatch.delenv("OPENSRE_MASK_EXTRA_REGEX", raising=False)
+    script = (
+        "import sys; "
+        "sys.stdout.write('Pod <PO'); sys.stdout.flush(); "
+        "sys.stdout.write('D_0> failed. API key: secret-value'); sys.stdout.flush()"
+    )
+    with patch("infrastructure.safety.guardrails.evaluator.get_guardrail_evaluator") as gr:
+        gr.return_value.is_active = False
+        client = CLIBackedLLMClient(_PlainStreamingAdapter(script))
+        chunks = list(client.invoke_stream("Pod backend-123 failed. API key: secret-value"))
+
+    assert chunks == ["Pod backend-123 failed. API key: [REDACTED]"]
+
+
+@patch("integrations.llm_cli.runner.subprocess.run")
+def test_cli_agent_restores_tool_arguments_and_masks_full_history(mock_run, monkeypatch) -> None:
+    from core.llm.transports.sdk.agent_clients import CLIBackedAgentClient
+
+    monkeypatch.setenv("OPENSRE_MASK_ENABLED", "true")
+    monkeypatch.setenv("OPENSRE_MASK_KINDS", "pod,namespace,ip_address,email")
+    monkeypatch.setenv("OPENSRE_MASK_EXTRA_REGEX", json.dumps({"customer": r"CUST-\d+"}))
+    adapter = MagicMock()
+    adapter.name = "copilot"
+    adapter.detect.return_value = _mock_probe()
+
+    def build(**kwargs) -> CLIInvocation:
+        return CLIInvocation(
+            argv=("/usr/bin/mock-cli",),
+            stdin=kwargs["prompt"],
+            cwd=os.getcwd(),
+            env=None,
+            timeout_sec=30.0,
+        )
+
+    adapter.build.side_effect = build
+    adapter.parse.side_effect = lambda **kwargs: kwargs["stdout"]
+    adapter.explain_failure.side_effect = lambda **kwargs: kwargs["stderr"]
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stderr="",
+        stdout=json.dumps(
+            {
+                "tool_calls": [
+                    {
+                        "id": "query",
+                        "name": "query_logs",
+                        "input": {
+                            "pod": "<POD_0>",
+                            "namespace": "<NAMESPACE_0>",
+                            "customer": "<CUSTOMER_0>",
+                        },
+                    }
+                ]
+            }
+        ),
+    )
+    messages = [
+        {"role": "user", "content": "Pod backend-123 failed. API key: secret-value"},
+        {
+            "role": "tool",
+            "content": json.dumps(
+                {
+                    "namespace": "prod-app",
+                    "ip": "192.0.2.10",
+                    "owner": "alice@example.test",
+                    "customer": "CUST-123",
+                }
+            ),
+        },
+    ]
+    with patch("infrastructure.safety.guardrails.evaluator.get_guardrail_evaluator") as gr:
+        gr.return_value.is_active = False
+        response = CLIBackedAgentClient(adapter).invoke(messages, tools=[{"name": "query_logs"}])
+
+    sent = mock_run.call_args.kwargs["input"]
+    for original in (
+        "backend-123",
+        "prod-app",
+        "192.0.2.10",
+        "alice@example.test",
+        "CUST-123",
+        "secret-value",
+    ):
+        assert original not in sent
+    assert "[REDACTED]" in sent
+    assert response.tool_calls[0].input == {
+        "pod": "backend-123",
+        "namespace": "prod-app",
+        "customer": "CUST-123",
+    }
+
+    mock_run.return_value.stdout = json.dumps(
+        {"final_answer": "Pod <POD_0> failed. API key: secret-value"}
+    )
+    final = CLIBackedAgentClient(adapter).invoke(messages, tools=[{"name": "query_logs"}])
+    assert final.content == "Pod backend-123 failed. API key: [REDACTED]"
+
+    import pytest
+
+    mock_run.return_value.returncode = 1
+    mock_run.return_value.stderr = "provider error: API key: secret-value"
+    with pytest.raises(RuntimeError) as error:
+        CLIBackedAgentClient(adapter).invoke(messages)
+    assert "secret-value" not in str(error.value)
+    assert "[REDACTED]" in str(error.value)

@@ -2,12 +2,70 @@
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from unittest.mock import patch
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
 from integrations.config_models import PagerDutyIntegrationConfig
+from integrations.pagerduty.client import PagerDutyClient
+
+
+@pytest.mark.parametrize(
+    ("configured_ids", "requested_ids", "expected_ids"),
+    [
+        (None, None, []),
+        ("", None, []),
+        ("   ", ["POTHER"], ["POTHER"]),
+        ("PONE", None, ["PONE"]),
+        (" PONE, PTWO, PONE, ", [], ["PONE", "PTWO"]),
+        ("PONE,PTWO", ["PTWO"], ["PTWO"]),
+    ],
+)
+def test_incident_list_service_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    configured_ids: str | None,
+    requested_ids: list[str] | None,
+    expected_ids: list[str],
+) -> None:
+    if configured_ids is None:
+        monkeypatch.delenv("PAGERDUTY_SERVICE_IDS", raising=False)
+    else:
+        monkeypatch.setenv("PAGERDUTY_SERVICE_IDS", configured_ids)
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(HTTPStatus.OK, json={"incidents": []})
+
+    with PagerDutyClient(PagerDutyIntegrationConfig(api_key="test-key")) as client:
+        client._client = httpx.Client(
+            base_url=client.config.base_url, transport=httpx.MockTransport(respond)
+        )
+        result = client.list_incidents(service_ids=requested_ids, statuses=["triggered"], limit=5)
+
+    assert result["success"] is True
+    assert len(requests) == 1
+    assert requests[0].url.params.get_list("service_ids[]") == expected_ids
+    assert requests[0].url.params.get_list("statuses[]") == ["triggered"]
+    assert requests[0].url.params["limit"] == "5"
+
+
+@pytest.mark.parametrize(
+    ("configured_ids", "requested_ids"),
+    [("PONE,PTWO", ["POTHER"]), ("PONE", ["PONE", "POTHER"]), (", ,", None)],
+)
+def test_incident_list_rejects_scope_widening_without_http(
+    monkeypatch: pytest.MonkeyPatch, configured_ids: str, requested_ids: list[str] | None
+) -> None:
+    monkeypatch.setenv("PAGERDUTY_SERVICE_IDS", configured_ids)
+    with PagerDutyClient(PagerDutyIntegrationConfig(api_key="test-key")) as client:
+        result = client.list_incidents(service_ids=requested_ids)
+        assert client._client is None
+    assert result["success"] is False
+    assert result["error"]
 
 
 class TestPagerDutyIntegrationConfig:

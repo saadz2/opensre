@@ -33,6 +33,11 @@ class DetectedIdentifier:
 # the identifier itself (not the preceding label like "kube_namespace:").
 
 _POD_RE = re.compile(r"\b([a-z0-9](?:[-a-z0-9]*[a-z0-9])?-[a-f0-9]{5,10}(?:-[a-z0-9]{3,10})?)\b")
+_CONTEXTUAL_POD_RE = re.compile(
+    r"\b(?:pod|pod_name|podName)(?:\\?[\"'])?[=:\s]+(?:\\?[\"'])?"
+    r"([a-z0-9][-a-z0-9]*)\b",
+    re.IGNORECASE,
+)
 _NAMESPACE_RE = re.compile(
     r"\b(?:kube_namespace|namespace|ns)[=:\s]+([a-z0-9][-a-z0-9]*)\b", re.IGNORECASE
 )
@@ -101,6 +106,9 @@ def find_identifiers(
         if not policy.is_kind_enabled(kind):
             continue
         _append_matches(pattern, text, kind, found)
+
+    if policy.is_kind_enabled(IdentifierKind.POD):
+        _append_matches(_CONTEXTUAL_POD_RE, text, IdentifierKind.POD, found)
 
     extras = compiled_extras if compiled_extras is not None else compile_extra_patterns(policy)
     for label, extra in extras.items():

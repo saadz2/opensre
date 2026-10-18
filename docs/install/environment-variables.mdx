@@ -731,11 +731,17 @@ Mirror conversation history and memory to a user-owned object store. Details: [R
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPENSEARCH_URL` |  | OpenSearch instance URL |
+| `OPENSEARCH_CA_BUNDLE` |  | Path to a CA bundle for OpenSearch TLS verification (self-signed/internal CA) |
 | `OPENSEARCH_USERNAME` |  | OpenSearch username |
 | `OPENSEARCH_PASSWORD` |  | OpenSearch password |
 | `OPENSEARCH_API_KEY` |  | OpenSearch API key (alternative to username/password) |
 | `OPENSEARCH_INDEX_PATTERN` | `*` | OpenSearch index pattern |
 | `OPENSEARCH_MAX_RESULTS` | `100` | Max OpenSearch results |
+
+For private/self-signed endpoints, use the service-specific `GRAFANA_CA_BUNDLE`
+or `OPENSEARCH_CA_BUNDLE`. Avoid setting global `SSL_CERT_FILE` or
+`REQUESTS_CA_BUNDLE` to an internal-only CA bundle; those overrides can break
+TLS verification for public services.
 | `OPENOBSERVE_URL` |  | OpenObserve instance URL |
 | `OPENOBSERVE_TOKEN` |  | OpenObserve API token |
 | `OPENOBSERVE_USERNAME` |  | OpenObserve username |

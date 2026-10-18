@@ -73,6 +73,10 @@ class TestElasticsearchConfig:
         cfg = ElasticsearchConfig(url="http://localhost:9200", index_pattern="logs-*")
         assert cfg.index_pattern == "logs-*"
 
+    def test_ca_bundle_is_stored(self) -> None:
+        cfg = ElasticsearchConfig(url="https://localhost:9200", ca_bundle="/etc/ssl/internal.pem")
+        assert cfg.ca_bundle == "/etc/ssl/internal.pem"
+
 
 # ── Client.is_configured ──────────────────────────────────────────────────────
 
@@ -134,6 +138,26 @@ class TestCheckSecurity:
 
         assert result["success"] is False
         assert "Unexpected status" in result["error"]
+
+    def test_check_security_uses_configured_ca_bundle(self) -> None:
+        mock_resp = MagicMock(status_code=HTTPStatus.OK)
+        with patch("integrations.elasticsearch.client.httpx.get", return_value=mock_resp) as get:
+            client = ElasticsearchClient(
+                ElasticsearchConfig(url="https://localhost:9200", ca_bundle="/etc/ssl/internal.pem")
+            )
+            client.check_security()
+
+        assert get.call_args.kwargs["verify"] == "/etc/ssl/internal.pem"
+
+
+def test_http_client_uses_configured_ca_bundle() -> None:
+    with patch("integrations.elasticsearch.client.httpx.Client") as factory:
+        client = ElasticsearchClient(
+            ElasticsearchConfig(url="https://localhost:9200", ca_bundle="/etc/ssl/internal.pem")
+        )
+        client._get_client()
+
+    assert factory.call_args.kwargs["verify"] == "/etc/ssl/internal.pem"
 
 
 # ── list_indices ──────────────────────────────────────────────────────────────

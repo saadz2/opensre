@@ -388,6 +388,7 @@ EXPORTS: dict[str, str] = {
     "NEW_RELIC_NRQL_TIMEOUT_SECONDS": "new_relic",
     # opensearch
     "OPENSEARCH_API_KEY_ENV": "opensearch",
+    "OPENSEARCH_CA_BUNDLE_ENV": "opensearch",
     "OPENSEARCH_INTEGRATION_SETUP_CLI": "opensearch",
     "OPENSEARCH_INTEGRATION_SETUP_SLASH": "opensearch",
     "OPENSEARCH_PASSWORD_ENV": "opensearch",
@@ -402,6 +403,7 @@ EXPORTS: dict[str, str] = {
     # pagerduty
     "PAGERDUTY_API_KEY_ENV": "pagerduty",
     "PAGERDUTY_BASE_URL_ENV": "pagerduty",
+    "PAGERDUTY_SERVICE_IDS_ENV": "pagerduty",
     # paths
     "CONTEXT_ROOT_ENV": "paths",
     "OPENSRE_HOME_DIR": "paths",

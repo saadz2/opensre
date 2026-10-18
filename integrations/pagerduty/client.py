@@ -7,10 +7,12 @@ lookups, and service/escalation-policy discovery during RCA.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import httpx
 
+from config.constants.pagerduty import PAGERDUTY_SERVICE_IDS_ENV
 from infrastructure.observability.errors.service import capture_service_error
 from integrations.config_models import PagerDutyIntegrationConfig
 from integrations.probes import ProbeResult
@@ -84,7 +86,21 @@ class PagerDutyClient:
         until: str | None = None,
         limit: int = 25,
     ) -> dict[str, Any]:
-        """List PagerDuty incidents, optionally filtered by status/urgency/service/time."""
+        """List incidents within the configured service scope and optional query filters."""
+        configured_ids = os.getenv(PAGERDUTY_SERVICE_IDS_ENV, "").strip()
+        if configured_ids:
+            allowed_ids = list(
+                dict.fromkeys(value.strip() for value in configured_ids.split(",") if value.strip())
+            )
+            if not allowed_ids:
+                return {"success": False, "error": "PAGERDUTY_SERVICE_IDS contains no service IDs."}
+            if service_ids and not set(service_ids).issubset(allowed_ids):
+                return {
+                    "success": False,
+                    "error": "Requested services are outside the configured PagerDuty service scope.",
+                }
+            service_ids = service_ids or allowed_ids
+
         params: dict[str, Any] = {"limit": min(limit, 100)}
         if statuses:
             params["statuses[]"] = statuses

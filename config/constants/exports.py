@@ -287,6 +287,7 @@ EXPORTS: dict[str, str] = {
     "GRAFANA_READ_TOKEN_ENV": "grafana",
     "GRAFANA_TEMPO_DATASOURCE_UID_ENV": "grafana",
     "GRAFANA_VERIFY_SSL_ENV": "grafana",
+    "GRAFANA_ZABBIX_DATASOURCE_UID_ENV": "grafana",
     # groundcover
     "GROUNDCOVER_API_KEY_ENV": "groundcover",
     "GROUNDCOVER_BACKEND_ID_ENV": "groundcover",

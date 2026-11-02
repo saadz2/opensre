@@ -79,7 +79,7 @@ _ALIASES_TABLE: dict[str, tuple[str, ...]] = {
     "vercel": ("vercel", "deploy", "deployment", "build failed"),
     "github": ("github", "commit", "pull request", "merge"),
     "gitlab": ("gitlab", "merge request"),
-    "grafana": ("grafana", "loki", "mimir", "prometheus"),
+    "grafana": ("grafana", "loki", "mimir", "prometheus", "zabbix"),
     "honeycomb": ("honeycomb", "span", "trace latency"),
     "coralogix": ("coralogix",),
     "splunk": ("splunk",),

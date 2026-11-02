@@ -1523,6 +1523,8 @@ _TOOLS_WITHOUT_DELIBERATE_CATCH: frozenset[str] = frozenset(
         "query_grafana_metrics",
         "query_grafana_service_names",
         "query_grafana_traces",
+        "query_grafana_zabbix_metrics",
+        "query_grafana_zabbix_problems",
         "query_honeycomb_traces",
         "query_new_relic_alerts",
         "query_new_relic_metrics",

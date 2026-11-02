@@ -439,6 +439,25 @@ def test_verify_grafana_passes_with_supported_datasource(monkeypatch: pytest.Mon
     assert "prometheus" in result["detail"]
 
 
+def test_verify_grafana_passes_with_only_a_zabbix_datasource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_requests_get(*_args: Any, **_kwargs: Any) -> _FakeResponse:
+        return _FakeResponse(
+            [{"type": "alexanderzobnin-zabbix-datasource", "uid": "zbx", "name": "Zabbix"}]
+        )
+
+    monkeypatch.setattr("integrations.grafana.verifier.requests.get", _fake_requests_get)
+
+    result = _verify_grafana(
+        "local env",
+        {"endpoint": "https://example.grafana.net", "api_key": "token"},
+    )
+
+    assert result["status"] == "passed"
+    assert "zabbix" in result["detail"]
+
+
 def test_verify_grafana_connect_timeout_detail_is_compact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

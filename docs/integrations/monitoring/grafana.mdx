@@ -121,7 +121,7 @@ Deployment and config-change markers are covered on [Grafana Annotations](/integ
 
 If your Grafana has the [Zabbix plugin](https://grafana.com/grafana/plugins/alexanderzobnin-zabbix-datasource/) datasource, OpenSRE finds it automatically and enables the two Zabbix tools. The service account needs read access to that datasource. Without a Zabbix datasource, both tools report `Zabbix datasource not found`.
 
-`query_grafana_zabbix_metrics` needs an `item_filter` (an item name or a `/regex/`) and accepts optional `host_filter` and `group_filter`. `query_grafana_zabbix_problems` filters hosts and groups by name, where `*` is a wildcard.
+`query_grafana_zabbix_metrics` needs an `item_filter` (an item name or a `/regex/`) and accepts a Zabbix host name, interface IP address, or `group_filter`. `query_grafana_zabbix_problems` accepts a host name or interface IP address; `*` is a wildcard for host names. Prometheus-style metrics use `query_grafana_metrics` and PromQL; Zabbix history uses the Zabbix metrics tool and Zabbix item names.
 
 ## Verify
 

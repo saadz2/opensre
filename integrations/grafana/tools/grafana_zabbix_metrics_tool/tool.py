@@ -29,7 +29,9 @@ class QueryGrafanaZabbixMetricsInput(BaseModel):
     )
     host_filter: str = Field(
         default="",
-        description="Host name or `/regex/`. Empty matches every host.",
+        description=(
+            "Zabbix host name, interface IP address, or `/regex/`. Empty matches every host."
+        ),
         examples=["web-01", "/web-.*/"],
     )
     group_filter: str = Field(
@@ -75,11 +77,13 @@ def _extract_params(sources: dict[str, dict]) -> dict[str, Any]:
     evidence_mapper=map_zabbix_metrics,
     description=(
         "Read Zabbix item history (CPU, memory, disk, network, custom items) through "
-        "Grafana's Zabbix datasource. Requires an item_filter; narrow with host_filter or "
-        "group_filter. Returns per-item min/max/avg/last stats and sampled points."
+        "Grafana's Zabbix datasource. Use for Zabbix items, not PromQL. Requires an "
+        "item_filter; narrow with a Zabbix host name, interface IP address, or group_filter. "
+        "Returns per-item min/max/avg/last stats and sampled points."
     ),
     use_cases=[
         "Checking CPU, memory, disk or network trends on a host Zabbix monitors",
+        "Checking Zabbix CPU or memory items for a host identified by interface IP",
         "Confirming a resource spike around the time a Zabbix problem fired",
         "Comparing an item across several hosts with a regex host filter",
     ],
@@ -89,6 +93,7 @@ def _extract_params(sources: dict[str, dict]) -> dict[str, Any]:
     side_effect_level=SideEffectLevel.READ_ONLY,
     examples=[
         "Query `CPU utilization` on host `web-01` for the last 30 minutes.",
+        "Query Zabbix CPU and memory items for host IP `172.31.45.206`.",
         "Query `/Free disk space.*/` across hosts matching `/db-.*/`.",
     ],
     anti_examples=[

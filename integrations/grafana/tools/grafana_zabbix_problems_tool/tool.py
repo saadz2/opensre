@@ -24,7 +24,10 @@ _MAX_LIMIT = 200
 class QueryGrafanaZabbixProblemsInput(BaseModel):
     host_filter: str = Field(
         default="",
-        description="Host name to match; `*` is a wildcard. Empty matches every host.",
+        description=(
+            "Zabbix host name or interface IP address; `*` is a wildcard for names. "
+            "Empty matches every host."
+        ),
         examples=["web-01", "web-*"],
     )
     group_filter: str = Field(

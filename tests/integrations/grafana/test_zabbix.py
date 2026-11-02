@@ -76,6 +76,28 @@ def test_problems_resolve_host_filter_and_attach_trigger_hosts() -> None:
     assert url == "https://grafana.example.com/api/datasources/uid/zbx-uid%2F1/resources/zabbix-api"
 
 
+def test_problems_resolve_interface_ip_with_host_get() -> None:
+    client = DummyZabbixClient(
+        {
+            "host.get": [
+                {
+                    "hostid": "10084",
+                    "host": "web-01",
+                    "name": "Web Server",
+                    "interfaces": [{"ip": "172.31.45.206"}],
+                }
+            ],
+            "problem.get": [],
+        }
+    )
+
+    result = client.query_zabbix_problems(host_filter="172.31.45.206")
+
+    assert result["success"] is True
+    assert client.params_for("host.get")["selectInterfaces"] == ["ip"]
+    assert client.params_for("problem.get")["hostids"] == ["10084"]
+
+
 def test_problems_keep_old_active_ones_and_drop_stale_resolved_ones() -> None:
     old_active = _problem("1", clock=_NOW - 10 * 86400)
     recent_resolved = _problem("2", clock=_NOW - 600, recovered_at=_NOW - 300)
@@ -187,6 +209,35 @@ def test_metrics_builds_zabbix_query_and_normalizes_frames() -> None:
     assert query["host"] == {"filter": "web-01"}
     assert query["group"] == {"filter": "/.*/"}
     assert int(body["to"]) - int(body["from"]) == 60 * 60 * 1000
+
+
+def test_metrics_resolves_interface_ip_with_host_get() -> None:
+    client = DummyZabbixClient()
+    client._make_post_request = MagicMock(
+        side_effect=[
+            {
+                "result": [
+                    {
+                        "hostid": "10084",
+                        "host": "web-01",
+                        "name": "Web Server",
+                        "interfaces": [{"ip": "172.31.45.206"}],
+                    }
+                ]
+            },
+            _METRICS_RESPONSE,
+        ]
+    )
+
+    result = client.query_zabbix_metrics("CPU utilization", host_filter="172.31.45.206")
+
+    assert result["success"] is True
+    calls = client._make_post_request.call_args_list
+    host_request = calls[0].kwargs["json_body"]
+    assert host_request["method"] == "host.get"
+    assert host_request["params"]["selectInterfaces"] == ["ip"]
+    query = calls[1].kwargs["json_body"]["queries"][0]
+    assert query["host"]["filter"] == r"/^(web\-01|Web\ Server)$/"
 
 
 def test_metrics_surfaces_a_query_error_reported_inside_a_200_response() -> None:

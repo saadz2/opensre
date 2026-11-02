@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import re
 import time
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
@@ -98,6 +100,78 @@ def _lookup_ids(
     return [str(row[id_field]) for row in rows if isinstance(row, dict) and row.get(id_field)]
 
 
+def _is_ip_address(value: str) -> bool:
+    """Whether ``value`` is a literal IPv4 or IPv6 address."""
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _lookup_hosts_by_ip(client: GrafanaClientBase, address: str) -> list[dict[str, Any]]:
+    """Fetch bounded host/interface records and retain those with the requested IP."""
+    target = ipaddress.ip_address(address)
+    rows = _call_zabbix_api(
+        client,
+        "host.get",
+        {
+            "output": ["hostid", "host", "name"],
+            "selectInterfaces": ["ip"],
+            "limit": _MAX_LOOKUP_IDS,
+        },
+    )
+    return [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("hostid")
+        and any(
+            _matches_ip(interface.get("ip"), target)
+            for interface in (row.get("interfaces") or [])
+            if isinstance(interface, dict)
+        )
+    ]
+
+
+def _matches_ip(value: Any, target: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Compare a Zabbix interface address with a parsed IPv4 or IPv6 address."""
+    if not isinstance(value, str):
+        return False
+    try:
+        return ipaddress.ip_address(value) == target
+    except ValueError:
+        return False
+
+
+def _lookup_host_ids(client: GrafanaClientBase, host_filter: str) -> list[str]:
+    """Resolve an IP through host interfaces, or search host names as before."""
+    if not _is_ip_address(host_filter):
+        return _lookup_ids(
+            client, "host.get", "hostid", {"host": [host_filter], "name": [host_filter]}
+        )
+
+    return list(
+        dict.fromkeys(str(host["hostid"]) for host in _lookup_hosts_by_ip(client, host_filter))
+    )
+
+
+def _host_name_filter(hosts: list[dict[str, Any]]) -> str:
+    """Build an exact plugin regex from the technical and visible host names."""
+    names = list(
+        dict.fromkeys(
+            re.escape(name).replace("/", r"\/")
+            for host in hosts
+            for name in (host.get("host"), host.get("name"))
+            if isinstance(name, str) and name
+        )
+    )
+    if not names:
+        return ""
+    pattern = names[0] if len(names) == 1 else f"({'|'.join(names)})"
+    return f"/^{pattern}$/"
+
+
 def _trigger_hosts(client: GrafanaClientBase, trigger_ids: list[str]) -> dict[str, list[str]]:
     """Map each trigger ID to the names of the hosts it belongs to."""
     if not trigger_ids:
@@ -139,7 +213,7 @@ class ZabbixMixin:
         """Query Zabbix problems (active alerts, plus recently resolved ones).
 
         Args:
-            host_filter: Host name or technical name to match; ``*`` is a wildcard.
+            host_filter: Host name, technical name, or interface IP; ``*`` is a wildcard.
             group_filter: Host group name to match; ``*`` is a wildcard.
             min_severity: Lowest severity to return, 0 (not classified) to 5 (disaster).
             include_resolved: Also return problems resolved inside the time window.
@@ -178,9 +252,7 @@ class ZabbixMixin:
             if severity > 0:
                 params["severities"] = list(range(severity, _MAX_SEVERITY + 1))
             if host_filter:
-                host_ids = _lookup_ids(
-                    self, "host.get", "hostid", {"host": [host_filter], "name": [host_filter]}
-                )
+                host_ids = _lookup_host_ids(self, host_filter)
                 if not host_ids:
                     return {"success": True, **base, "account_id": self.account_id}
                 params["hostids"] = host_ids
@@ -225,7 +297,7 @@ class ZabbixMixin:
 
         Args:
             item_filter: Item name, or ``/regex/``, e.g. ``CPU utilization``.
-            host_filter: Host name or ``/regex/``; empty matches every host.
+            host_filter: Host name, interface IP, or ``/regex/``; empty matches every host.
             group_filter: Host group name or ``/regex/``; empty matches every group.
             time_range_minutes: Lookback window in minutes (default 60).
 
@@ -244,6 +316,20 @@ class ZabbixMixin:
         start_ms = end_ms - window_minutes * 60 * 1000
         group = group_filter or _MATCH_ALL
         host = host_filter or _MATCH_ALL
+        if host_filter and _is_ip_address(host_filter):
+            try:
+                host = _host_name_filter(_lookup_hosts_by_ip(self, host_filter))
+            except Exception as e:
+                return _failure(e, metrics=[])
+            if not host:
+                return {
+                    "success": True,
+                    "metrics": [],
+                    "total_series": 0,
+                    "truncated": False,
+                    "query": {"group": group, "host": host_filter, "item": item_filter},
+                    "account_id": self.account_id,
+                }
 
         body = {
             "queries": [

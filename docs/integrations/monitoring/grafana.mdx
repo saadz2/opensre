@@ -37,6 +37,7 @@ GRAFANA_CA_BUNDLE=/path/to/internal-ca.pem # optional — internal CA
 | `GRAFANA_READ_TOKEN` | — | **Required.** Service account token |
 | `GRAFANA_VERIFY_SSL` | `true` | Set `false` to skip TLS verification (lab only) |
 | `GRAFANA_CA_BUNDLE` | — | PEM file for private CA (recommended for internal Grafana) |
+| `GRAFANA_ZABBIX_DATASOURCE_UID` | — | Optional. Zabbix datasource UID; set it only if auto-discovery picks the wrong one |
 
 For prod/staging pairs, use `GRAFANA_INSTANCES` — see [Multi-instance integrations](/platform/multi-instance-integrations).
 
@@ -111,8 +112,16 @@ Use this value as `GRAFANA_READ_TOKEN` (CLI prompt: service account token).
 | `query_grafana_traces` | Tempo traces through the Grafana datasource proxy |
 | `query_grafana_alert_rules` | Alert rule configuration and thresholds |
 | `query_grafana_service_names` | Discover Loki `service_name` labels before querying logs |
+| `query_grafana_zabbix_problems` | Active and recently resolved Zabbix problems, with severity, hosts, and acknowledgement state |
+| `query_grafana_zabbix_metrics` | Zabbix item history (CPU, memory, disk) with min/max/avg/last per item |
 
 Deployment and config-change markers are covered on [Grafana Annotations](/integrations/monitoring/grafana_annotations). For standalone Tempo (no Grafana proxy), see [Grafana Tempo](/integrations/monitoring/tempo).
+
+### Zabbix datasource
+
+If your Grafana has the [Zabbix plugin](https://grafana.com/grafana/plugins/alexanderzobnin-zabbix-datasource/) datasource, OpenSRE finds it automatically and enables the two Zabbix tools. The service account needs read access to that datasource. Without a Zabbix datasource, both tools report `Zabbix datasource not found`.
+
+`query_grafana_zabbix_metrics` needs an `item_filter` (an item name or a `/regex/`) and accepts optional `host_filter` and `group_filter`. `query_grafana_zabbix_problems` filters hosts and groups by name, where `*` is a wildcard.
 
 ## Verify
 
@@ -126,6 +135,7 @@ opensre integrations verify grafana
 | --- | --- |
 | **TLS / certificate errors** | For lab only, set `GRAFANA_VERIFY_SSL=false`. For internal Grafana, set `GRAFANA_CA_BUNDLE` to a PEM with your CA (preferred). |
 | **Auth failures** | Confirm the service account token is valid and has read access to the target datasources. |
+| **`Zabbix datasource not found`** | Grafana has no Zabbix plugin datasource visible to the token. Add one, grant the service account access, or set `GRAFANA_ZABBIX_DATASOURCE_UID`. |
 | **Multiple Grafana stacks** | Use `GRAFANA_INSTANCES` — see [Multi-instance integrations](/platform/multi-instance-integrations). |
 
 ## Security

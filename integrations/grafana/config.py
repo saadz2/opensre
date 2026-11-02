@@ -18,6 +18,7 @@ class GrafanaAccountConfig(StrictConfigModel):
     loki_datasource_uid: str = ""
     tempo_datasource_uid: str = ""
     mimir_datasource_uid: str = ""
+    zabbix_datasource_uid: str = ""
     description: str = ""
     username: str = ""
     password: str = ""

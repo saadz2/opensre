@@ -614,6 +614,9 @@ if TYPE_CHECKING:
     from config.constants.grafana import (
         GRAFANA_VERIFY_SSL_ENV as GRAFANA_VERIFY_SSL_ENV,
     )
+    from config.constants.grafana import (
+        GRAFANA_ZABBIX_DATASOURCE_UID_ENV as GRAFANA_ZABBIX_DATASOURCE_UID_ENV,
+    )
     from config.constants.groundcover import (
         GROUNDCOVER_API_KEY_ENV as GROUNDCOVER_API_KEY_ENV,
     )

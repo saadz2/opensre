@@ -89,3 +89,47 @@ def test_client_prefers_discovered_uids_over_env_fallbacks(
     # Mimir missing from discovery → env/cloud default fallback
     assert client.mimir_datasource_uid
     grafana_client._grafana_client_cache.clear()
+
+
+def test_client_falls_back_to_env_zabbix_uid_when_discovery_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from integrations.grafana import client as grafana_client
+
+    grafana_client._grafana_client_cache.clear()
+    monkeypatch.setenv("GRAFANA_ZABBIX_DATASOURCE_UID", "env-zabbix")
+    monkeypatch.setattr(grafana_client.GrafanaClient, "discover_datasource_uids", lambda _self: {})
+
+    client = grafana_client.get_grafana_client_from_credentials(
+        endpoint="http://grafana.example.com", api_key="token", account_id="zabbix_env_fallback"
+    )
+
+    assert client.zabbix_datasource_uid == "env-zabbix"
+    grafana_client._grafana_client_cache.clear()
+
+
+def test_client_prefers_discovered_zabbix_uid_and_has_no_default_without_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from integrations.grafana import client as grafana_client
+
+    grafana_client._grafana_client_cache.clear()
+    monkeypatch.setenv("GRAFANA_ZABBIX_DATASOURCE_UID", "env-zabbix")
+    monkeypatch.setattr(
+        grafana_client.GrafanaClient,
+        "discover_datasource_uids",
+        lambda _self: {"zabbix_uid": "discovered-zabbix"},
+    )
+    discovered = grafana_client.get_grafana_client_from_credentials(
+        endpoint="http://grafana.example.com", api_key="token", account_id="zabbix_discovered"
+    )
+    assert discovered.zabbix_datasource_uid == "discovered-zabbix"
+
+    grafana_client._grafana_client_cache.clear()
+    monkeypatch.delenv("GRAFANA_ZABBIX_DATASOURCE_UID")
+    monkeypatch.setattr(grafana_client.GrafanaClient, "discover_datasource_uids", lambda _self: {})
+    undiscovered = grafana_client.get_grafana_client_from_credentials(
+        endpoint="http://grafana.example.com", api_key="token", account_id="zabbix_absent"
+    )
+    assert undiscovered.zabbix_datasource_uid == ""
+    grafana_client._grafana_client_cache.clear()

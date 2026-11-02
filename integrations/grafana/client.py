@@ -13,12 +13,17 @@ from config.constants.grafana import (
     GRAFANA_READ_TOKEN_ENV,
     GRAFANA_VERIFY_SSL_ENV,
 )
-from config.grafana_cloud import DEFAULT_INSTANCE_URL, get_datasource_uids
+from config.grafana_cloud import (
+    DEFAULT_INSTANCE_URL,
+    get_datasource_uids,
+    get_zabbix_datasource_uid,
+)
 from integrations.grafana.base import GrafanaClientBase
 from integrations.grafana.config import GrafanaAccountConfig
 from integrations.grafana.loki import LokiMixin
 from integrations.grafana.mimir import MimirMixin
 from integrations.grafana.tempo import TempoMixin
+from integrations.grafana.zabbix import ZabbixMixin
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +123,8 @@ def _cache_key(
     return f"{_cache_key_identity(account_id=account_id, endpoint=endpoint)}{_FINGERPRINT_SEP}{fingerprint}"
 
 
-class GrafanaClient(LokiMixin, TempoMixin, MimirMixin, GrafanaClientBase):
-    """Unified client for querying Grafana Cloud Loki, Tempo, and Mimir."""
+class GrafanaClient(LokiMixin, TempoMixin, MimirMixin, ZabbixMixin, GrafanaClientBase):
+    """Unified client for querying Grafana Cloud Loki, Tempo, Mimir, and Zabbix."""
 
     pass
 
@@ -252,8 +257,9 @@ def _build_and_cache_client(
     loki_uid = discovered.get("loki_uid") or fallback_loki
     tempo_uid = discovered.get("tempo_uid") or fallback_tempo
     mimir_uid = discovered.get("mimir_uid") or fallback_mimir
+    zabbix_uid = discovered.get("zabbix_uid") or get_zabbix_datasource_uid()
 
-    if loki_uid or tempo_uid or mimir_uid:
+    if loki_uid or tempo_uid or mimir_uid or zabbix_uid:
         config = GrafanaAccountConfig(
             account_id=account_id,
             instance_url=endpoint.rstrip("/"),
@@ -265,15 +271,17 @@ def _build_and_cache_client(
             loki_datasource_uid=loki_uid,
             tempo_datasource_uid=tempo_uid,
             mimir_datasource_uid=mimir_uid,
+            zabbix_datasource_uid=zabbix_uid,
         )
         client = GrafanaClient(config=config)
         logger.info(
             "[grafana] Client ready for account_id=%s with datasource UIDs: "
-            "loki=%s tempo=%s mimir=%s (discovered=%s)",
+            "loki=%s tempo=%s mimir=%s zabbix=%s (discovered=%s)",
             account_id,
             config.loki_datasource_uid,
             config.tempo_datasource_uid,
             config.mimir_datasource_uid,
+            config.zabbix_datasource_uid,
             bool(discovered),
         )
     else:

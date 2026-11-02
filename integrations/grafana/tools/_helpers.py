@@ -93,8 +93,20 @@ def grafana_available(sources: dict) -> bool:
 
 _grafana_available = grafana_available
 
+#: Zabbix tools query the live datasource, never an injected fixture backend.
+ZABBIX_RUNTIME_PARAMS = tuple(
+    param for param in GRAFANA_RUNTIME_PARAMS if param != "grafana_backend"
+)
+
+
+def zabbix_available(sources: dict) -> bool:
+    """Return True when Grafana credentials are present and no fixture backend is injected."""
+    return grafana_available(sources) and not grafana_source(sources).get("_backend")
+
+
 __all__ = [
     "GRAFANA_RUNTIME_PARAMS",
+    "ZABBIX_RUNTIME_PARAMS",
     "_grafana_available",
     "_grafana_creds",
     "_grafana_source",
@@ -104,4 +116,5 @@ __all__ = [
     "grafana_creds",
     "grafana_source",
     "resolve_grafana_client",
+    "zabbix_available",
 ]

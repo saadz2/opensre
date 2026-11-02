@@ -199,6 +199,15 @@ def test_client_config_treats_blank_api_key_as_none(monkeypatch: pytest.MonkeyPa
     assert captured["config"].api_key is None
 
 
+def test_client_config_uses_opensearch_ca_bundle_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_CA_BUNDLE", "/etc/ssl/internal.pem")
+    captured = _install_es_stubs(monkeypatch, _ok_search)
+
+    query_opensearch_analytics(url="https://os.example.invalid")
+
+    assert captured["config"].ca_bundle == "/etc/ssl/internal.pem"
+
+
 def test_blank_index_pattern_becomes_star(monkeypatch: pytest.MonkeyPatch) -> None:
     search_kwargs: dict[str, Any] = {}
 

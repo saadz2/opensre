@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+
+from config.constants.opensearch import OPENSEARCH_CA_BUNDLE_ENV
 from integrations.config_models import (
     GrafanaIntegrationConfig,
 )
@@ -100,6 +103,7 @@ def validate_opensearch_integration(
         api_key=api_key or None,
         username=username or None,
         password=password or None,
+        ca_bundle=os.getenv(OPENSEARCH_CA_BUNDLE_ENV, "").strip() or None,
     )
     client = ElasticsearchClient(config)
     result = client.get_cluster_health()

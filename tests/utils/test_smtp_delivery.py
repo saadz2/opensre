@@ -111,6 +111,29 @@ class _RefusingSMTP(_FakeSMTP):
         raise smtplib.SMTPRecipientsRefused({"alice@example.com": (550, b"No such user")})
 
 
+def test_send_smtp_report_uses_plain_relay_without_tls_or_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _FakeSMTP("relay.example.com", 25, 15)
+    monkeypatch.setattr("integrations.smtp.delivery.smtplib.SMTP", _return_fake_client(fake_client))
+    ok, error = send_smtp_report(
+        report="RCA report",
+        subject="RCA findings",
+        smtp_ctx={
+            "host": "relay.example.com",
+            "port": 25,
+            "security": "none",
+            "from_address": "reports@example.com",
+            "default_to": "team@example.com",
+        },
+    )
+
+    assert ok and not error
+    assert not fake_client.started_tls
+    assert fake_client.logged_in is None
+    assert len(fake_client.sent) == 1
+
+
 def test_send_smtp_report_keeps_recipient_addresses_out_of_the_returned_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

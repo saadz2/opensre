@@ -614,6 +614,9 @@ if TYPE_CHECKING:
     from config.constants.grafana import (
         GRAFANA_VERIFY_SSL_ENV as GRAFANA_VERIFY_SSL_ENV,
     )
+    from config.constants.grafana import (
+        GRAFANA_ZABBIX_DATASOURCE_UID_ENV as GRAFANA_ZABBIX_DATASOURCE_UID_ENV,
+    )
     from config.constants.groundcover import (
         GROUNDCOVER_API_KEY_ENV as GROUNDCOVER_API_KEY_ENV,
     )
@@ -888,6 +891,9 @@ if TYPE_CHECKING:
         OPENSEARCH_API_KEY_ENV as OPENSEARCH_API_KEY_ENV,
     )
     from config.constants.opensearch import (
+        OPENSEARCH_CA_BUNDLE_ENV as OPENSEARCH_CA_BUNDLE_ENV,
+    )
+    from config.constants.opensearch import (
         OPENSEARCH_INTEGRATION_SETUP_CLI as OPENSEARCH_INTEGRATION_SETUP_CLI,
     )
     from config.constants.opensearch import (
@@ -922,6 +928,9 @@ if TYPE_CHECKING:
     )
     from config.constants.pagerduty import (
         PAGERDUTY_BASE_URL_ENV as PAGERDUTY_BASE_URL_ENV,
+    )
+    from config.constants.pagerduty import (
+        PAGERDUTY_SERVICE_IDS_ENV as PAGERDUTY_SERVICE_IDS_ENV,
     )
     from config.constants.paths import (
         CONTEXT_ROOT_ENV as CONTEXT_ROOT_ENV,

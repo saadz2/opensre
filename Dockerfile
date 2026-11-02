@@ -42,6 +42,7 @@ RUN apt-get update \
 ARG GH_VERSION=2.101.0
 ARG NODE_VERSION=22.23.2
 ARG CODEX_VERSION=0.156.1
+ARG COPILOT_VERSION=1.0.93
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
@@ -60,9 +61,9 @@ RUN set -eux; \
     curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"; \
     grep " ${node_tar}$" SHASUMS256.txt | sha256sum -c -; \
     tar -xJf "${node_tar}" -C /usr/local --strip-components=1 --no-same-owner; \
-    npm install -g "@openai/codex@${CODEX_VERSION}"; \
+    npm install -g "@openai/codex@${CODEX_VERSION}" "@github/copilot@${COPILOT_VERSION}"; \
     rm -rf /tmp/* /root/.npm; \
-    git --version; gh --version; node --version; codex --version
+    git --version; gh --version; node --version; codex --version; copilot --version
 
 COPY infrastructure/deployment/container/entrypoint.py /usr/local/bin/opensre-container-entrypoint.py
 
@@ -82,6 +83,7 @@ ENV CODING_AGENT_SANDBOX=host
 # The supervisor is the only thing this image's Python runs.
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV OPENSRE_INSTALL_DIR=/home/opensre/.local/bin
+ENV PATH="/home/opensre/.local/bin:${PATH}"
 
 # Note: EXPOSE and HEALTHCHECK only apply to web mode
 # Gateway mode uses outbound-only long-polling (no inbound HTTP)

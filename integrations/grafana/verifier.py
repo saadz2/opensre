@@ -9,7 +9,7 @@ import requests
 from integrations.config_models import GrafanaIntegrationConfig
 from integrations.verification import register_verifier, result
 
-_SUPPORTED_GRAFANA_TYPES = ("loki", "tempo", "prometheus")
+_SUPPORTED_GRAFANA_TYPES = ("loki", "tempo", "prometheus", "zabbix")
 
 
 def _discover_datasources(config: GrafanaIntegrationConfig) -> list[Any] | str:
@@ -86,7 +86,7 @@ def verify_grafana(source: str, config: dict[str, Any]) -> dict[str, str]:
             "grafana",
             source,
             "failed",
-            "Connected, but no Loki, Tempo, or Prometheus datasources were discovered.",
+            "Connected, but no Loki, Tempo, Prometheus, or Zabbix datasources were discovered.",
         )
 
     return result(

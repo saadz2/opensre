@@ -29,6 +29,16 @@ from integrations.grafana.tools.grafana_metrics_tool import (
 )
 from integrations.grafana.tools.grafana_service_names_tool import query_grafana_service_names
 from integrations.grafana.tools.grafana_traces_tool import query_grafana_traces
+from integrations.grafana.tools.grafana_zabbix_metrics_tool import (
+    QueryGrafanaZabbixMetricsInput,
+    QueryGrafanaZabbixMetricsOutput,
+    query_grafana_zabbix_metrics,
+)
+from integrations.grafana.tools.grafana_zabbix_problems_tool import (
+    QueryGrafanaZabbixProblemsInput,
+    QueryGrafanaZabbixProblemsOutput,
+    query_grafana_zabbix_problems,
+)
 
 # Alias kept for older call sites / tests that used the private constant name.
 _GRAFANA_RUNTIME_PARAMS = GRAFANA_RUNTIME_PARAMS
@@ -37,6 +47,10 @@ __all__ = [
     "GRAFANA_RUNTIME_PARAMS",
     "QueryGrafanaMetricsInput",
     "QueryGrafanaMetricsOutput",
+    "QueryGrafanaZabbixMetricsInput",
+    "QueryGrafanaZabbixMetricsOutput",
+    "QueryGrafanaZabbixProblemsInput",
+    "QueryGrafanaZabbixProblemsOutput",
     "_GRAFANA_RUNTIME_PARAMS",
     "_grafana_available",
     "_grafana_creds",
@@ -50,4 +64,6 @@ __all__ = [
     "query_grafana_metrics",
     "query_grafana_service_names",
     "query_grafana_traces",
+    "query_grafana_zabbix_metrics",
+    "query_grafana_zabbix_problems",
 ]

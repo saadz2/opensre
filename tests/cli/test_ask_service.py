@@ -987,6 +987,25 @@ def test_chat_only_tool_denial_suggests_valid_authorized_rerun(monkeypatch) -> N
     assert authorized.response == "trace results"
 
 
+def test_run_ask_partial_results_do_not_hide_approval_denial(monkeypatch) -> None:
+    def deny_after_partial_results(
+        _prompt: str, hooks: ToolExecutionHooks, **_kwargs: object
+    ) -> TurnResult:
+        assert hooks.before_tool_call is not None
+        decision = hooks.before_tool_call(_risky_request())
+        assert decision is not None and decision.blocked
+        return _turn("1 series for up")
+
+    monkeypatch.setattr(service, "_run_agent_turn", deny_after_partial_results)
+    outcome = service.run_ask("prompt", allowed_tools=(), bypass_approvals=False)
+
+    assert outcome.status is AskStatus.APPROVAL_DENIED
+    assert outcome.exit_code is AskExitCode.APPROVAL_DENIED
+    assert "1 series for up" in outcome.response
+    assert "Approval denied for: shell_run" in outcome.response
+    assert "--allowed-tool shell_run" in outcome.response
+
+
 def test_run_ask_maps_hosted_credit_exhaustion_to_nonzero_upgrade_error(
     monkeypatch,
 ) -> None:

@@ -69,6 +69,17 @@ make lint && make format-check && make typecheck && make test-cov
 
 ---
 
+## Use your own LLM while signed in
+
+Set `OPENSRE_USE_HOSTED_LLM=0` in your project `.env` to keep your OpenSRE
+account login while using the provider selected by `LLM_PROVIDER`. Configure
+that provider's credentials and model as usual, then restart OpenSRE.
+
+For a frozen executable, set this in `~/.opensre/.env`, or point
+`OPENSRE_PROJECT_ENV_PATH` at your project `.env`. Rebuild an existing
+executable to include this option. Set `OPENSRE_USE_HOSTED_LLM=1` to restore
+the hosted model; hosted routing remains the default when this option is unset.
+
 ## VS Code dev container
 
 1. Install the **Dev Containers** extension in VS Code.

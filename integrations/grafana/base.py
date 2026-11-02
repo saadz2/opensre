@@ -114,6 +114,7 @@ class GrafanaClientBase:
         self.loki_datasource_uid = config.loki_datasource_uid
         self.tempo_datasource_uid = config.tempo_datasource_uid
         self.mimir_datasource_uid = config.mimir_datasource_uid
+        self.zabbix_datasource_uid = config.zabbix_datasource_uid
         self.uses_local_anonymous_auth = config.uses_local_anonymous_auth
 
     @property
@@ -184,11 +185,13 @@ class GrafanaClientBase:
             to_time=to_time,
         )
 
-    # Datasource type keywords used to classify each datasource
+    # Datasource type keywords used to classify each datasource. The Zabbix plugin
+    # type is ``alexanderzobnin-zabbix-datasource``, so it matches on "zabbix".
     _TYPE_MAP = {
         "loki": "loki_uid",
         "tempo": "tempo_uid",
         "prometheus": "mimir_uid",
+        "zabbix": "zabbix_uid",
     }
 
     # UIDs/names containing these substrings are internal/secondary datasources
@@ -200,13 +203,14 @@ class GrafanaClientBase:
         "loki_uid": ["logs", "-log"],
         "tempo_uid": ["traces", "-trace"],
         "mimir_uid": ["prom", "metrics", "-metric"],
+        "zabbix_uid": ["zabbix"],
     }
 
     def discover_datasource_uids(self) -> dict[str, str]:
         """Discover datasource UIDs by querying GET /api/datasources.
 
         Iterates all datasources returned by the user's Grafana instance and
-        picks the best one matching each type (loki, tempo, prometheus).
+        picks the best one matching each type (loki, tempo, prometheus, zabbix).
         Selection priority:
         1. Datasource marked ``isDefault``
         2. Datasource whose uid/name contains a primary hint (e.g. "logs" for loki)
@@ -214,7 +218,7 @@ class GrafanaClientBase:
         4. First datasource of that type (fallback)
 
         Returns:
-            Dict with keys loki_uid, tempo_uid, mimir_uid (only present if found).
+            Dict with keys loki_uid, tempo_uid, mimir_uid, zabbix_uid (only present if found).
         """
         if not self.instance_url or not self.is_configured:
             return {}

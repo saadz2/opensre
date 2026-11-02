@@ -10,6 +10,7 @@ from config.constants.grafana import (
     GRAFANA_MIMIR_DATASOURCE_UID_ENV,
     GRAFANA_READ_TOKEN_ENV,
     GRAFANA_TEMPO_DATASOURCE_UID_ENV,
+    GRAFANA_ZABBIX_DATASOURCE_UID_ENV,
 )
 
 DEFAULT_INSTANCE_URL = "https://tracerbio.grafana.net"
@@ -74,6 +75,12 @@ def get_datasource_uids() -> tuple[str, str, str]:
     tempo_uid = _get_env(GRAFANA_TEMPO_DATASOURCE_UID_ENV, DEFAULT_TEMPO_UID)
     mimir_uid = _get_env(GRAFANA_MIMIR_DATASOURCE_UID_ENV, DEFAULT_MIMIR_UID)
     return loki_uid, tempo_uid, mimir_uid
+
+
+def get_zabbix_datasource_uid() -> str:
+    """Zabbix datasource UID override; Grafana Cloud has no default Zabbix datasource."""
+    load_env()
+    return _get_env(GRAFANA_ZABBIX_DATASOURCE_UID_ENV, "")
 
 
 def get_otlp_endpoint() -> str:

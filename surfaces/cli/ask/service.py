@@ -457,9 +457,10 @@ def _approval_denied_outcome(
     denied_tools = tracker.denied_tools
     if not denied_tools:
         return None
+    denial_message = _approval_denied_message(denied_tools)
     return AskOutcome(
         status=AskStatus.APPROVAL_DENIED,
-        response=response or _approval_denied_message(denied_tools),
+        response=f"{response}\n\n{denial_message}" if response else denial_message,
         denied_tools=denied_tools,
         exit_code=AskExitCode.APPROVAL_DENIED,
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -399,6 +400,33 @@ def test_detect_when_version_fails(
     assert "boom" in probe.detail
 
 
+@pytest.mark.parametrize("startup_seconds", [10.0, 40.0])
+@patch("integrations.llm_cli.binary_resolver.shutil.which", return_value="/usr/bin/copilot")
+@patch("integrations.llm_cli.copilot.subprocess.run")
+def test_detect_slow_version_probe(
+    mock_run: MagicMock,
+    _mock_which: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    startup_seconds: float,
+) -> None:
+    _clean_copilot_env(monkeypatch)
+    monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "gho_test")
+
+    def slow_version(args: list[str], *, timeout: float, **_kwargs: object) -> MagicMock:
+        if startup_seconds > timeout:
+            raise subprocess.TimeoutExpired(cmd=args, timeout=timeout)
+        return _version_proc()
+
+    mock_run.side_effect = slow_version
+    probe = CopilotAdapter().detect()
+
+    assert mock_run.call_args.kwargs["timeout"] == 30.0
+    assert probe.bin_path == "/usr/bin/copilot"
+    assert probe.installed is (startup_seconds < 30.0)
+    if not probe.installed:
+        assert "timed out" in probe.detail
+
+
 # ---------------------------------------------------------------------------
 # detect() — no creds at all
 # ---------------------------------------------------------------------------
@@ -441,16 +469,92 @@ def test_build_argv_uses_non_interactive_flags(
     inv = CopilotAdapter().build(prompt="hello world", model=None, workspace="")
 
     assert inv.argv[0] == "/usr/bin/copilot"
-    assert "-p" in inv.argv
-    idx = inv.argv.index("-p")
-    assert inv.argv[idx + 1] == "hello world"
+    assert "-p" not in inv.argv
+    assert "hello world" not in inv.argv
+    assert inv.argv[inv.argv.index("--output-format") + 1] == "json"
+    assert "--available-tools=__opensre_host_only__" in inv.argv
+    assert inv.argv.count("--deny-tool") == 3
+    assert all(permission in inv.argv for permission in ("shell", "write", "url"))
+    assert "--disable-builtin-mcps" in inv.argv
+    assert "--no-custom-instructions" in inv.argv
     assert "--no-color" in inv.argv
     assert "--no-ask-user" in inv.argv
-    assert "--silent" in inv.argv
-    assert inv.stdin is None
+    assert "--silent" not in inv.argv
+    assert inv.stdin == "hello world"
     assert inv.cwd
     assert inv.env is None
     mock_which.assert_called()
+
+
+def test_parse_jsonl_preserves_host_calls_instead_of_native_missing_tool_reply() -> None:
+    events = [
+        {"type": "user.message", "data": {"content": "private input"}},
+        {
+            "type": "assistant.message",
+            "data": {
+                "content": "Checking the integrations.",
+                "toolRequests": [
+                    {
+                        "toolCallId": "query-1",
+                        "name": "query_grafana_metrics",
+                        "arguments": {"metric_name": "up"},
+                    }
+                ],
+            },
+        },
+        {
+            "type": "assistant.message",
+            "data": {"content": "Tool does not exist in the native CLI."},
+        },
+    ]
+    response = CopilotAdapter().parse(
+        stdout="\n".join(json.dumps(event) for event in events), stderr="", returncode=0
+    )
+
+    assert json.loads(response) == {
+        "tool_calls": [
+            {"id": "query-1", "name": "query_grafana_metrics", "input": {"metric_name": "up"}}
+        ]
+    }
+    assert "private input" not in response
+    assert not CopilotAdapter.streams_plain_stdout
+
+
+def test_parse_jsonl_returns_final_assistant_content_only() -> None:
+    events = [
+        {"type": "user.message", "data": {"content": "private input"}},
+        {"type": "assistant.message", "data": {"content": "Preparing a response."}},
+        {
+            "type": "assistant.message",
+            "data": {"content": '{"final_answer": "Done."}'},
+        },
+        {"type": "result", "exitCode": 0},
+    ]
+    response = CopilotAdapter().parse(
+        stdout="\n".join(json.dumps(event) for event in events), stderr="", returncode=0
+    )
+
+    assert response == '{"final_answer": "Done."}'
+
+
+def test_parse_jsonl_without_assistant_response_fails_without_echoing_events() -> None:
+    output = json.dumps({"type": "user.message", "data": {"content": "private input"}})
+    with pytest.raises(RuntimeError, match="no assistant response") as raised:
+        CopilotAdapter().parse(stdout=output, stderr="", returncode=0)
+    assert "private input" not in str(raised.value)
+
+
+@patch("integrations.llm_cli.binary_resolver.shutil.which", return_value="/usr/bin/copilot")
+def test_build_large_prompt_does_not_expand_command_line(
+    _mock_which: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clean_copilot_env(monkeypatch)
+    prompt = "incident context\n" * 10_000
+    inv = CopilotAdapter().build(prompt=prompt, model=None, workspace="")
+
+    assert inv.stdin == prompt
+    assert len(subprocess.list2cmdline(inv.argv)) < 1_000
 
 
 @patch("integrations.llm_cli.binary_resolver.shutil.which", return_value="/usr/bin/copilot")
@@ -580,6 +684,36 @@ def test_explain_failure_truncates_long_output() -> None:
 # ---------------------------------------------------------------------------
 # runner integration
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bin_path", ["/usr/bin/copilot", None])
+def test_cli_backed_client_distinguishes_probe_failure_from_missing_binary(
+    bin_path: str | None,
+) -> None:
+    from integrations.llm_cli.base import CLIProbe
+
+    adapter = MagicMock()
+    adapter.name = "copilot"
+    adapter.detect.return_value = CLIProbe(
+        installed=False,
+        version=None,
+        logged_in=None,
+        bin_path=bin_path,
+        detail="version probe timed out" if bin_path else "not found on PATH",
+    )
+    client = CLIBackedLLMClient(adapter)
+
+    with pytest.raises(RuntimeError) as raised:
+        client.invoke("hello")
+
+    message = str(raised.value)
+    if bin_path:
+        assert "startup check failed" in message
+        assert bin_path in message
+        assert "CLI not found" not in message
+    else:
+        assert "CLI not found" in message
+    adapter.build.assert_not_called()
 
 
 @patch("integrations.llm_cli.runner.subprocess.run")

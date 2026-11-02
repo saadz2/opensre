@@ -41,6 +41,7 @@ class ElasticsearchConfig:
     username: str | None = None
     password: str | None = None
     index_pattern: str = field(default="*")
+    ca_bundle: str | None = None
 
     @property
     def base_url(self) -> str:
@@ -84,6 +85,7 @@ class ElasticsearchClient:
                 base_url=self.config.base_url,
                 headers=self.config.headers,
                 timeout=_DEFAULT_TIMEOUT,
+                verify=self.config.ca_bundle or True,
             )
         return self._client
 
@@ -103,6 +105,7 @@ class ElasticsearchClient:
             resp = httpx.get(
                 f"{self.config.base_url}/_cluster/health",
                 timeout=_DEFAULT_TIMEOUT,
+                verify=self.config.ca_bundle or True,
             )
             if resp.status_code == HTTPStatus.OK:
                 security_enabled = False
